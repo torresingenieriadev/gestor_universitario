@@ -19,7 +19,14 @@ except ImportError:
     pass
 
 HF_API_KEY = os.environ.get("HF_API_KEY", "").strip()
-HF_API_URL = "https://api-inference.huggingface.co/models/%s"
+HF_CLIENT = None
+
+if HF_API_KEY:
+    try:
+        from huggingface_hub import InferenceClient
+        HF_CLIENT = InferenceClient(token=HF_API_KEY)
+    except ImportError:
+        pass
 
 
 class HTMLStripper(HTMLParser):
@@ -196,7 +203,7 @@ def analyze_transcript():
     if not transcript:
         return jsonify({"error": "No hay transcripción para analizar"}), 400
 
-    if HF_API_KEY:
+    if HF_CLIENT:
         return _hf_analyze(transcript, analysis_type)
     return jsonify({
         "result": _local_result(transcript, analysis_type)
@@ -207,113 +214,64 @@ def analyze_transcript():
 
 @app.route("/api/status", methods=["GET"])
 def api_status():
-    if not HF_API_KEY:
-        return jsonify({"hf_configured": False, "msg": "HF_API_KEY no configurada. Crea .env con tu token."})
+    if not HF_CLIENT:
+        return jsonify({"hf_configured": False, "msg": "Libreria huggingface-hub no disponible. Ejecuta: pip install huggingface-hub"})
 
-    models = ["google/flan-t5-small", "google/flan-t5-base", "gpt2"]
-    for model in models:
-        url = f"https://api-inference.huggingface.co/models/{model}"
+    for model in ["google/flan-t5-base", "google/flan-t5-small"]:
         try:
-            resp = requests.post(
-                url,
-                headers={"Authorization": f"Bearer {HF_API_KEY}"},
-                json={"inputs": "test", "parameters": {"max_new_tokens": 5}},
-                timeout=10,
-            )
-            if resp.status_code == 200:
+            result = HF_CLIENT.text_generation("Hola", model=model, max_new_tokens=5)
+            if result:
                 return jsonify({"hf_configured": True, "status": "ok", "model": model, "msg": "Hugging Face conectado"})
-            elif resp.status_code == 503:
-                return jsonify({"hf_configured": True, "status": "loading", "model": model, "msg": "Modelo cargandose (~30s)"})
         except Exception:
             continue
 
-    return jsonify({"hf_configured": True, "status": "error", "msg": "Ningun modelo respondio. Verifica tu conexion o API key."})
+    return jsonify({"hf_configured": True, "status": "error", "msg": "Ningun modelo respondio. Revisa tu API key."})
 
 
 def _hf_analyze(transcript, analysis_type):
     prompts = {
         "summary": (
             "Eres un asistente academico. Genera un resumen ejecutivo en espanol del siguiente texto de clase universitaria. "
-            "Incluye: 1) Idea principal, 2) Puntos clave (vinetas), 3) Conclusion breve.\n\nTEXTO:\n{text}\n\nRESUMEN:"
+            "Incluye: 1) Idea principal, 2) Puntos clave (en vinetas), 3) Conclusion breve.\n\nTEXTO:\n{text}\n\nRESUMEN:"
         ),
         "keywords": (
             "Extrae los 10 conceptos o terminos clave mas importantes del siguiente texto academico en espanol. "
-            "Para cada concepto, escribe una breve definicion basada en el contexto del texto. "
-            "Formato: 'Concepto: definicion breve'\n\nTEXTO:\n{text}\n\nCONCEPTOS CLAVE:"
+            "Para cada concepto escribe una breve definicion basada en el contexto.\n\nTEXTO:\n{text}\n\nCONCEPTOS:"
         ),
         "questions": (
-            "Genera 5 preguntas de estudio en espanol basadas en el siguiente texto de clase. "
-            "Las preguntas deben evaluar comprension profunda, no solo memoria. "
-            "Incluye la respuesta correcta para cada pregunta.\n\nTEXTO:\n{text}\n\nPREGUNTAS:"
+            "Genera 5 preguntas de estudio en espanol basadas en este texto de clase. Incluye respuesta.\n\nTEXTO:\n{text}\n\nPREGUNTAS:"
         ),
         "flashcards": (
-            "Crea 5 tarjetas de estudio (flashcards) en espanol a partir de este texto academico. "
-            "Formato para cada tarjeta:\n"
-            "FRENTE: [concepto o pregunta]\n"
-            "REVERSO: [definicion o respuesta]\n\n"
-            "TEXTO:\n{text}\n\nTARJETAS:"
+            "Crea 5 tarjetas de estudio en espanol. Formato: FRENTE: concepto | REVERSO: definicion.\n\nTEXTO:\n{text}\n\nTARJETAS:"
         ),
     }
 
     prompt_template = prompts.get(analysis_type, prompts["summary"])
     max_chars = 3500
     truncated = transcript[:max_chars]
-    if len(transcript) > max_chars:
-        truncated += "\n\n[Texto truncado...]"
 
     full_prompt = prompt_template.format(text=truncated)
-    headers = {"Authorization": f"Bearer {HF_API_KEY}"}
-
-    # Modelos probados en tier gratuito, en orden de preferencia
-    models = ["google/flan-t5-small", "google/flan-t5-base", "gpt2"]
+    models = ["google/flan-t5-large", "google/flan-t5-base", "google/flan-t5-small"]
     last_error = ""
 
-    import time
     for model in models:
-        url = f"https://api-inference.huggingface.co/models/{model}"
-        for attempt in range(2):
-            try:
-                resp = requests.post(
-                    url,
-                    headers=headers,
-                    json={"inputs": full_prompt, "parameters": {"max_new_tokens": 500, "temperature": 0.3}},
-                    timeout=45,
-                )
-
-                if resp.status_code == 200:
-                    result = resp.json()
-                    if isinstance(result, list) and len(result) > 0:
-                        text = result[0].get("generated_text", "")
-                        if full_prompt in text:
-                            text = text.replace(full_prompt, "").strip()
-                        if text and len(text) > 10:
-                            return jsonify({"result": text})
-
-                elif resp.status_code == 503:
-                    if attempt == 0:
-                        time.sleep(4)
-                        continue
-
-                elif resp.status_code in (401, 403):
-                    return jsonify({
-                        "result": _local_result(transcript, analysis_type)
-                        + "\n\n[Error: API key invalida. Verifica tu token.]"
-                    })
-
-                last_error = f"{model}: HTTP {resp.status_code}"
-
-            except requests.exceptions.ConnectionError:
-                last_error = f"{model}: Error de conexion a internet"
-            except requests.exceptions.Timeout:
-                last_error = f"{model}: Timeout"
-            except Exception as e:
-                last_error = f"{model}: {str(e)[:100]}"
-
-            break  # si no fue 200 ni 503 con retry, probar siguiente modelo
+        try:
+            result = HF_CLIENT.text_generation(
+                full_prompt,
+                model=model,
+                max_new_tokens=500,
+                temperature=0.3,
+            )
+            if result and len(result.strip()) > 10:
+                return jsonify({"result": result.strip()})
+            last_error = f"{model}: respuesta vacia"
+        except Exception as e:
+            last_error = f"{model}: {str(e)[:120]}"
+            continue
 
     return jsonify({
         "result": _local_result(transcript, analysis_type)
-        + f"\n\n[Todos los modelos fallaron. Ultimo error: {last_error}]"
+        + f"\n\n[IA no disponible: {last_error}]"
     })
 
 
