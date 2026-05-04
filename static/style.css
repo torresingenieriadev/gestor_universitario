@@ -374,6 +374,69 @@ body::before {
     margin-bottom: 24px;
 }
 
+.welcome-hero {
+    max-width: 520px;
+    width: 100%;
+}
+
+.welcome-subtitle {
+    color: var(--text-secondary);
+    max-width: 420px;
+    font-size: 0.88rem;
+    line-height: 1.6;
+    margin-bottom: 24px;
+}
+
+.welcome-features {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 24px;
+    max-width: 440px;
+    margin-left: auto;
+    margin-right: auto;
+    text-align: left;
+}
+
+.welcome-feature {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius);
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.feature-icon {
+    font-size: 1.1rem;
+    margin-bottom: 2px;
+}
+
+.welcome-feature strong {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.welcome-feature span:last-child {
+    font-size: 0.7rem;
+    color: var(--text-tertiary);
+    line-height: 1.4;
+}
+
+.welcome-state .btn-lg {
+    padding: 14px 32px;
+    font-size: 0.95rem;
+}
+
+@media (max-width: 600px) {
+    .welcome-features {
+        grid-template-columns: 1fr;
+        max-width: 280px;
+    }
+}
+
 /* ===== SUBJECT VIEW ===== */
 .subject-view {
     animation: fadeIn 0.3s ease;

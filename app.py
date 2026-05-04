@@ -15,7 +15,7 @@ except ImportError:
     pass
 
 HF_API_KEY = os.environ.get("HF_API_KEY", "").strip()
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyAYcRG1RNxtjzOUJKgLwGG-inSEIwQ4sDY").strip()
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "").strip()
 
 AI_SETTINGS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ai_settings.json")
@@ -26,7 +26,7 @@ def load_ai_settings():
         with open(AI_SETTINGS_PATH, "r") as f:
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
-        return {"provider": "gemini", "api_key": ""}
+        return {"provider": "local", "api_key": ""}
 
 
 def save_ai_settings(settings):
@@ -36,7 +36,7 @@ def save_ai_settings(settings):
 
 def get_active_api_key():
     settings = load_ai_settings()
-    provider = settings.get("provider", "gemini")
+    provider = settings.get("provider", "local")
     key = settings.get("api_key", "").strip()
     if key:
         return provider, key
@@ -44,7 +44,7 @@ def get_active_api_key():
         return "gemini", GEMINI_API_KEY
     if provider == "deepseek" and DEEPSEEK_API_KEY:
         return "deepseek", DEEPSEEK_API_KEY
-    if HF_API_KEY:
+    if provider == "hf" and HF_API_KEY:
         return "hf", HF_API_KEY
     return None, None
 
@@ -179,7 +179,7 @@ def analyze_transcript():
         return _deepseek_analyze(transcript, analysis_type, api_key)
     if provider == "hf":
         return _hf_analyze(transcript, analysis_type, api_key)
-    return jsonify({"result": _local_result(transcript, analysis_type) + "\n\n---\nModo offline. Verifica tu conexion o configura otra API key en el boton ⚙ del tab IA."})
+    return jsonify({"result": _local_result(transcript, analysis_type)})
 
 
 def _gemini_analyze(transcript, analysis_type, api_key):
@@ -275,9 +275,10 @@ def get_ai_settings():
     settings = load_ai_settings()
     provider, _ = get_active_api_key()
     return jsonify({
-        "provider": settings.get("provider", "gemini"),
+        "provider": settings.get("provider", "local"),
         "configured": provider is not None,
         "providers": [
+            {"id": "local", "name": "Local (sin IA)", "free": True, "url": ""},
             {"id": "gemini", "name": "Google Gemini", "free": True, "url": "https://aistudio.google.com/apikey"},
             {"id": "deepseek", "name": "DeepSeek (China)", "free": True, "url": "https://platform.deepseek.com/api_keys"},
             {"id": "hf", "name": "Hugging Face", "free": True, "url": "https://huggingface.co/settings/tokens"},
