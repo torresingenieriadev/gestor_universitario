@@ -215,7 +215,7 @@ def analyze_transcript():
 @app.route("/api/status", methods=["GET"])
 def api_status():
     if not HF_CLIENT:
-        return jsonify({"hf_configured": False, "msg": "Libreria huggingface-hub no disponible. Ejecuta: pip install huggingface-hub"})
+        return jsonify({"hf_configured": False, "msg": "Libreria huggingface-hub no disponible."})
 
     models = [
         "google/flan-t5-base",
@@ -227,11 +227,12 @@ def api_status():
 
     for model in models:
         try:
-            result = HF_CLIENT.text_generation("Di hola", model=model, max_new_tokens=5)
+            result = HF_CLIENT.text_generation("Hola", model=model, max_new_tokens=5, timeout=20)
             if result:
-                return jsonify({"hf_configured": True, "status": "ok", "model": model, "msg": "Hugging Face conectado"})
+                return jsonify({"hf_configured": True, "status": "ok", "model": model, "msg": "Conectado"})
+            results.append(f"{model}: respuesta vacia")
         except Exception as e:
-            results.append(f"{model}: {str(e)[:150]}")
+            results.append(f"{model}: [{type(e).__name__}] {str(e)[:200]}")
             continue
 
     return jsonify({
@@ -275,12 +276,13 @@ def _hf_analyze(transcript, analysis_type):
                 model=model,
                 max_new_tokens=500,
                 temperature=0.3,
+                timeout=60,
             )
             if result and len(result.strip()) > 10:
                 return jsonify({"result": result.strip()})
             last_error = f"{model}: respuesta vacia"
         except Exception as e:
-            last_error = f"{model}: {str(e)[:120]}"
+            last_error = f"{model}: [{type(e).__name__}] {str(e)[:120]}"
             continue
 
     return jsonify({
