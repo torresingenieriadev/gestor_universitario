@@ -50,6 +50,9 @@ def clean_html(raw_html):
     lines = [line.strip() for line in text.split("\n")]
     text = "\n".join(line for line in lines if line)
     text = re.sub(r"\n{3,}", "\n\n", text)
+    text = re.sub(r"Copiar enlace en esta transcripción\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"Copy link to this transcript\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\d{1,2}:\d{2}\s*", "", text)
     return text.strip()
 
 
