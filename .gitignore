@@ -1,7 +1,26 @@
+# Entorno
 .env
+.venv/
+venv/
+env/
+
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Datos (se regeneran automáticamente)
 data/
+
+# IDE
 .vscode/
 .idea/
-*.egg-info/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
