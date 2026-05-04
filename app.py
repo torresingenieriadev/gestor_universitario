@@ -227,7 +227,7 @@ def api_status():
 
     for model in models:
         try:
-            result = HF_CLIENT.text_generation("Hola", model=model, max_new_tokens=5, timeout=20)
+            result = HF_CLIENT.text_generation("Hola", model=model, max_new_tokens=5)
             if result:
                 return jsonify({"hf_configured": True, "status": "ok", "model": model, "msg": "Conectado"})
             results.append(f"{model}: respuesta vacia")
@@ -276,7 +276,6 @@ def _hf_analyze(transcript, analysis_type):
                 model=model,
                 max_new_tokens=500,
                 temperature=0.3,
-                timeout=60,
             )
             if result and len(result.strip()) > 10:
                 return jsonify({"result": result.strip()})
