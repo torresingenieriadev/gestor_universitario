@@ -19,14 +19,29 @@ except ImportError:
     pass
 
 HF_API_KEY = os.environ.get("HF_API_KEY", "").strip()
-HF_CLIENT = None
+HF_API_URL = "https://api-inference.huggingface.co/models/%s"
 
-if HF_API_KEY:
-    try:
-        from huggingface_hub import InferenceClient
-        HF_CLIENT = InferenceClient(token=HF_API_KEY)
-    except ImportError:
-        pass
+def hf_call(model, prompt, max_tokens=500, temperature=0.3):
+    url = HF_API_URL % model
+    headers = {"Authorization": f"Bearer {HF_API_KEY}"}
+    payload = {
+        "inputs": prompt,
+        "parameters": {"max_new_tokens": max_tokens, "temperature": temperature, "return_full_text": False},
+    }
+    resp = requests.post(url, headers=headers, json=payload, timeout=60)
+    if resp.status_code == 200:
+        data = resp.json()
+        if isinstance(data, list) and len(data) > 0:
+            return data[0].get("generated_text", "")
+    elif resp.status_code == 503:
+        raise Exception("Modelo cargandose (HTTP 503). Espera unos segundos y reintenta.")
+    elif resp.status_code in (401, 403):
+        raise Exception(f"API key sin permisos (HTTP {resp.status_code}). Revisa tu token.")
+    elif resp.status_code == 404:
+        raise Exception(f"Modelo no encontrado (HTTP 404).")
+    else:
+        raise Exception(f"HTTP {resp.status_code}: {resp.text[:200]}")
+    return ""
 
 
 class HTMLStripper(HTMLParser):
@@ -203,7 +218,7 @@ def analyze_transcript():
     if not transcript:
         return jsonify({"error": "No hay transcripción para analizar"}), 400
 
-    if HF_CLIENT:
+    if HF_API_KEY:
         return _hf_analyze(transcript, analysis_type)
     return jsonify({
         "result": _local_result(transcript, analysis_type)
@@ -214,25 +229,25 @@ def analyze_transcript():
 
 @app.route("/api/status", methods=["GET"])
 def api_status():
-    if not HF_CLIENT:
-        return jsonify({"hf_configured": False, "msg": "Libreria huggingface-hub no disponible."})
+    if not HF_API_KEY:
+        return jsonify({"hf_configured": False, "msg": "HF_API_KEY no configurada."})
 
     models = [
         "google/flan-t5-base",
         "google/flan-t5-small",
-        "microsoft/DialoGPT-medium",
+        "gpt2",
         "distilgpt2",
     ]
     results = []
 
     for model in models:
         try:
-            result = HF_CLIENT.text_generation("Hola", model=model, max_new_tokens=5)
+            result = hf_call(model, "Hola", max_tokens=5)
             if result:
                 return jsonify({"hf_configured": True, "status": "ok", "model": model, "msg": "Conectado"})
             results.append(f"{model}: respuesta vacia")
         except Exception as e:
-            results.append(f"{model}: [{type(e).__name__}] {str(e)[:200]}")
+            results.append(f"{model}: {str(e)[:200]}")
             continue
 
     return jsonify({
@@ -271,17 +286,12 @@ def _hf_analyze(transcript, analysis_type):
 
     for model in models:
         try:
-            result = HF_CLIENT.text_generation(
-                full_prompt,
-                model=model,
-                max_new_tokens=500,
-                temperature=0.3,
-            )
+            result = hf_call(model, full_prompt, max_tokens=500, temperature=0.3)
             if result and len(result.strip()) > 10:
                 return jsonify({"result": result.strip()})
             last_error = f"{model}: respuesta vacia"
         except Exception as e:
-            last_error = f"{model}: [{type(e).__name__}] {str(e)[:120]}"
+            last_error = f"{model}: {str(e)[:150]}"
             continue
 
     return jsonify({
