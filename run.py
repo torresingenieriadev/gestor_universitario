@@ -7,6 +7,7 @@ def main():
     try:
         import flask
         import requests
+        import huggingface_hub
     except ImportError:
         print("Instalando dependencias...")
         subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt", "--quiet"])
