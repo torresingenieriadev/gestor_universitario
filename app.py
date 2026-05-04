@@ -11,7 +11,14 @@ app = Flask(__name__)
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 DATA_FILE = os.path.join(DATA_DIR, "data.json")
 
-HF_API_KEY = os.environ.get("HF_API_KEY", "")
+try:
+    from dotenv import load_dotenv
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    load_dotenv(env_path)
+except ImportError:
+    pass
+
+HF_API_KEY = os.environ.get("HF_API_KEY", "").strip()
 HF_API_URL = "https://api-inference.huggingface.co/models/%s"
 
 
@@ -191,30 +198,56 @@ def analyze_transcript():
 
     if HF_API_KEY:
         return _hf_analyze(transcript, analysis_type)
-    return _local_analyze(transcript, analysis_type)
+    return jsonify({
+        "result": _local_result(transcript, analysis_type)
+        + "\n\n---\nModo offline. No se detecto HF_API_KEY.\n"
+        + "Crea un archivo .env con: HF_API_KEY=hf_tu_token"
+    })
+
+
+@app.route("/api/status", methods=["GET"])
+def api_status():
+    if not HF_API_KEY:
+        return jsonify({"hf_configured": False, "msg": "HF_API_KEY no configurada. Crea .env con tu token."})
+
+    try:
+        resp = requests.post(
+            HF_API_URL % "google/flan-t5-large",
+            headers={"Authorization": f"Bearer {HF_API_KEY}"},
+            json={"inputs": "test", "parameters": {"max_new_tokens": 5}},
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            return jsonify({"hf_configured": True, "status": "ok", "msg": "Hugging Face conectado correctamente"})
+        elif resp.status_code == 503:
+            return jsonify({"hf_configured": True, "status": "loading", "msg": f"Modelo cargandose (HTTP {resp.status_code}). Puede tomar ~30s."})
+        else:
+            return jsonify({"hf_configured": True, "status": "error", "msg": f"HTTP {resp.status_code}: {resp.text[:100]}"})
+    except Exception as e:
+        return jsonify({"hf_configured": True, "status": "error", "msg": str(e)[:200]})
 
 
 def _hf_analyze(transcript, analysis_type):
     prompts = {
         "summary": (
-            "Eres un asistente académico. Genera un resumen ejecutivo en español del siguiente texto de clase universitaria. "
-            "Incluye: 1) Idea principal, 2) Puntos clave (viñetas), 3) Conclusión breve.\n\nTEXTO:\n%s\n\nRESUMEN:"
+            "Eres un asistente academico. Genera un resumen ejecutivo en espanol del siguiente texto de clase universitaria. "
+            "Incluye: 1) Idea principal, 2) Puntos clave (vinetas), 3) Conclusion breve.\n\nTEXTO:\n%s\n\nRESUMEN:"
         ),
         "keywords": (
-            "Extrae los 10 conceptos o términos clave más importantes del siguiente texto académico en español. "
-            "Para cada concepto, escribe una breve definición basada en el contexto del texto. "
-            "Formato: 'Concepto: definición breve'\n\nTEXTO:\n%s\n\nCONCEPTOS CLAVE:"
+            "Extrae los 10 conceptos o terminos clave mas importantes del siguiente texto academico en espanol. "
+            "Para cada concepto, escribe una breve definicion basada en el contexto del texto. "
+            "Formato: 'Concepto: definicion breve'\n\nTEXTO:\n%s\n\nCONCEPTOS CLAVE:"
         ),
         "questions": (
-            "Genera 5 preguntas de estudio en español basadas en el siguiente texto de clase. "
-            "Las preguntas deben evaluar comprensión profunda, no solo memoria. "
+            "Genera 5 preguntas de estudio en espanol basadas en el siguiente texto de clase. "
+            "Las preguntas deben evaluar comprension profunda, no solo memoria. "
             "Incluye la respuesta correcta para cada pregunta.\n\nTEXTO:\n%s\n\nPREGUNTAS DE ESTUDIO:"
         ),
         "flashcards": (
-            "Crea 5 tarjetas de estudio (flashcards) en español a partir de este texto académico. "
+            "Crea 5 tarjetas de estudio (flashcards) en espanol a partir de este texto academico. "
             "Formato para cada tarjeta:\n"
             "FRENTE: [concepto o pregunta]\n"
-            "REVERSO: [definición o respuesta]\n\n"
+            "REVERSO: [definicion o respuesta]\n\n"
             "TEXTO:\n%s\n\nTARJETAS:"
         ),
     }
@@ -228,51 +261,73 @@ def _hf_analyze(transcript, analysis_type):
     full_prompt = prompt % truncated
     headers = {"Authorization": f"Bearer {HF_API_KEY}"}
 
-    modelos = {
-        "summary": "google/flan-t5-large",
-        "keywords": "google/flan-t5-large",
-        "questions": "google/flan-t5-large",
-        "flashcards": "google/flan-t5-large",
-    }
-    model = modelos.get(analysis_type, "google/flan-t5-large")
+    model = "google/flan-t5-large"
 
-    try:
-        resp = requests.post(
-            HF_API_URL % model,
-            headers=headers,
-            json={"inputs": full_prompt, "parameters": {"max_new_tokens": 600, "temperature": 0.3}},
-            timeout=30,
-        )
-        if resp.status_code == 200:
-            result = resp.json()
-            if isinstance(result, list) and len(result) > 0:
-                text = result[0].get("generated_text", "")
-                if full_prompt in text:
-                    text = text.replace(full_prompt, "").strip()
-                return jsonify({"result": text})
-        elif resp.status_code == 503:
-            return jsonify({"result": _local_result(transcript, analysis_type) + "\n\n[Nota: El modelo de IA está cargándose en Hugging Face. Se muestra análisis local mientras tanto. Recarga en unos segundos.]"})
-    except Exception:
-        pass
+    import time
+    for attempt in range(3):
+        try:
+            resp = requests.post(
+                HF_API_URL % model,
+                headers=headers,
+                json={"inputs": full_prompt, "parameters": {"max_new_tokens": 600, "temperature": 0.3}},
+                timeout=45,
+            )
 
-    return jsonify({"result": _local_result(transcript, analysis_type) + "\n\n[Nota: No se pudo conectar con Hugging Face. Revisa tu API key o conexión. Se muestra análisis local.]"})
+            if resp.status_code == 200:
+                result = resp.json()
+                if isinstance(result, list) and len(result) > 0:
+                    text = result[0].get("generated_text", "")
+                    if full_prompt in text:
+                        text = text.replace(full_prompt, "").strip()
+                    if text:
+                        return jsonify({"result": text})
 
+            elif resp.status_code == 503:
+                if attempt < 2:
+                    time.sleep(3)
+                    continue
+                return jsonify({
+                    "result": _local_result(transcript, analysis_type)
+                    + "\n\n[Modelo cargandose en Hugging Face. Intenta de nuevo en 30 segundos.]"
+                })
 
-def _local_analyze(transcript, analysis_type):
-    result = _local_result(transcript, analysis_type)
-    msg = (
-        "\n\n---\n"
-        "Modo offline (análisis local).\n"
-        "Para activar IA real gratis:\n"
-        "1. Crea cuenta en https://huggingface.co/join\n"
-        "2. Ve a https://huggingface.co/settings/tokens\n"
-        "3. Crea un token (tipo 'Read')\n"
-        "4. Copia el token y crea una variable de entorno:\n"
-        "   Windows: set HF_API_KEY=hf_tu_token_aqui\n"
-        "   O crea un archivo .env en la carpeta del proyecto con:\n"
-        "   HF_API_KEY=hf_tu_token_aqui"
-    )
-    return jsonify({"result": result + msg})
+            elif resp.status_code == 401 or resp.status_code == 403:
+                return jsonify({
+                    "result": _local_result(transcript, analysis_type)
+                    + "\n\n[Error: API key invalida. Verifica tu token en https://huggingface.co/settings/tokens]"
+                })
+
+            else:
+                error_msg = resp.text[:200] if resp.text else f"HTTP {resp.status_code}"
+                return jsonify({
+                    "result": _local_result(transcript, analysis_type)
+                    + f"\n\n[Error de Hugging Face: {error_msg}]"
+                })
+
+        except requests.exceptions.SSLError:
+            return jsonify({
+                "result": _local_result(transcript, analysis_type)
+                + "\n\n[Error SSL: Problema con el certificado. Verifica tu conexion a internet.]"
+            })
+        except requests.exceptions.ConnectionError:
+            return jsonify({
+                "result": _local_result(transcript, analysis_type)
+                + "\n\n[Error de conexion: No se pudo conectar a Hugging Face. Verifica tu internet.]"
+            })
+        except requests.exceptions.Timeout:
+            if attempt < 2:
+                continue
+            return jsonify({
+                "result": _local_result(transcript, analysis_type)
+                + "\n\n[Timeout: La API tardo demasiado. Intenta de nuevo.]"
+            })
+        except Exception as e:
+            return jsonify({
+                "result": _local_result(transcript, analysis_type)
+                + f"\n\n[Error: {str(e)[:150]}]"
+            })
+
+    return jsonify({"result": _local_result(transcript, analysis_type)})
 
 
 def _local_result(transcript, analysis_type):
