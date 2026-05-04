@@ -16,7 +16,7 @@ except ImportError:
 
 HF_API_KEY = os.environ.get("HF_API_KEY", "").strip()
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
-DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "sk-f73b1581c76c4301a1a3620d622bd8c8").strip()
 
 AI_SETTINGS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ai_settings.json")
 
@@ -179,7 +179,7 @@ def analyze_transcript():
         return _deepseek_analyze(transcript, analysis_type, api_key)
     if provider == "hf":
         return _hf_analyze(transcript, analysis_type, api_key)
-    return jsonify({"result": _local_result(transcript, analysis_type) + "\n\n---\nModo offline. Configura una API key en Ajustes > IA."})
+    return jsonify({"result": _local_result(transcript, analysis_type) + "\n\n---\nModo offline. Verifica tu conexion o configura otra API key en el boton ⚙ del tab IA."})
 
 
 def _gemini_analyze(transcript, analysis_type, api_key):
