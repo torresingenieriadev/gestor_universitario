@@ -1,20 +1,25 @@
 /**
- * Script para extraer la transcripción de Google Meet/Google Drive
+ * Script para extraer la transcripcion de Google Meet/Google Drive
  * 
- * INSTRUCCIONES:
- * 1. Abre la transcripción en Google Meet o Google Drive
- * 2. Abre la consola del navegador (F12 → Console)
- * 3. Pega este script completo y presiona Enter
- * 4. El texto limpio se copiará automáticamente al portapapeles
+ * INSTRUCCIONES PASO A PASO:
  * 
- * El script extrae todos los segmentos de la transcripción,
- * elimina timestamps y UI artifacts, y formatea el texto limpio.
+ * 1. Abre la transcripcion en Google Meet o Google Drive
+ * 2. Haz scroll hasta arriba y hasta abajo para cargar TODOS los segmentos
+ * 3. Abre la consola del navegador: F12 → pestaña "Console"
+ * 4. Si ves un warning rojo que dice "Warning: Don't paste code...", escribe:
+ *    allow pasting
+ *    (y presiona Enter para desbloquear el pegado)
+ * 5. Pega este script completo en la consola y presiona Enter
+ * 6. El texto limpio se copiara automaticamente al portapapeles
+ * 7. Vuelve a la app y pegalo en "Pegar Texto"
+ * 
+ * El script extrae todos los segmentos, elimina timestamps y UI artifacts.
  */
 
 (function() {
     var segments = document.querySelectorAll('.JnEIr, [jsname="Eqn5fb"]');
     if (segments.length === 0) {
-        console.error('No se encontraron segmentos de transcripción. Asegúrate de que la transcripción esté visible en pantalla.');
+        console.error('No se encontraron segmentos. Asegurate de hacer scroll en la transcripcion para cargar todo.');
         return;
     }
 
@@ -30,17 +35,17 @@
     });
 
     if (lines.length === 0) {
-        console.error('Se encontraron segmentos pero sin texto. Intenta hacer scroll en la transcripción para cargar más contenido.');
+        console.error('Sin texto encontrado. Haz scroll completo en la transcripcion.');
         return;
     }
 
     var result = lines.join('\n');
 
     navigator.clipboard.writeText(result).then(function() {
-        console.log('✅ Transcripción extraída: ' + lines.length + ' segmentos, ' + result.length + ' caracteres.');
-        console.log('El texto ha sido copiado al portapapeles.');
+        console.log('✅ Transcripcion extraida: ' + lines.length + ' segmentos, ' + result.length + ' caracteres.');
+        console.log('Texto copiado al portapapeles. Pegalo en la app.');
     }).catch(function() {
-        console.log('⚠️ No se pudo copiar automáticamente. Aquí está el texto:');
+        console.log('⚠️ No se pudo copiar automaticamente. Selecciona y copia manualmente el texto de abajo:');
         console.log(result);
     });
 })();

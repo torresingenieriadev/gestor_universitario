@@ -670,8 +670,16 @@ function showSessionImportModal() {
         '<div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>' +
         '<button class="btn btn-primary" onclick="importPasted()">Limpiar y Previsualizar</button></div></div>' +
         '<div id="import-script-tab" class="hidden">' +
-        '<p style="font-size:0.82rem; color:var(--text-light); margin-bottom:10px">Abre la consola del navegador (F12 → Console) en la pagina de la transcripcion, pega este codigo y presiona Enter:</p>' +
-        '<textarea id="import-script-text" readonly style="min-height:160px; width:100%; border:1px solid var(--border); border-radius:8px; padding:12px; font-family:monospace; font-size:0.78rem; resize:vertical; background:var(--bg-surface); color:var(--text-primary)">' + escapeHtml(meetScript) + '</textarea>' +
+        '<div style="background:var(--bg-surface); border:1px solid var(--border); border-radius:8px; padding:14px; margin-bottom:12px">' +
+        '<p style="font-size:0.8rem; font-weight:600; margin-bottom:8px">Instrucciones:</p>' +
+        '<ol style="font-size:0.78rem; color:var(--text-light); line-height:1.8; padding-left:18px; margin:0">' +
+        '<li>En Google Meet, haz <strong>scroll completo</strong> en la transcripcion para cargar todo</li>' +
+        '<li>Abre la consola: <strong>F12 → Console</strong></li>' +
+        '<li>Si ves un warning rojo, escribe <code style="background:var(--bg-elevated); padding:2px 6px; border-radius:4px">allow pasting</code> y Enter</li>' +
+        '<li>Pega el script de abajo y presiona Enter</li>' +
+        '<li>El texto se copiara al portapapeles automaticamente</li>' +
+        '</ol></div>' +
+        '<textarea id="import-script-text" readonly style="min-height:140px; width:100%; border:1px solid var(--border); border-radius:8px; padding:12px; font-family:monospace; font-size:0.78rem; resize:vertical; background:var(--bg-surface); color:var(--text-primary)">' + escapeHtml(meetScript) + '</textarea>' +
         '<div class="modal-actions"><button class="btn btn-ghost" onclick="copyScriptCode()">&#128203; Copiar Script</button></div></div>' +
         '<div id="import-result" class="hidden" style="margin-top:16px">' +
         '<div class="section-label">Vista previa del texto limpio</div>' +
