@@ -26,7 +26,7 @@ def load_ai_settings():
         with open(AI_SETTINGS_PATH, "r") as f:
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
-        return {"provider": "gemini", "api_key": ""}
+        return {"provider": "deepseek", "api_key": ""}
 
 
 def save_ai_settings(settings):
@@ -36,14 +36,14 @@ def save_ai_settings(settings):
 
 def get_active_api_key():
     settings = load_ai_settings()
-    provider = settings.get("provider", "gemini")
+    provider = settings.get("provider", "deepseek")
     key = settings.get("api_key", "").strip()
     if key:
         return provider, key
-    if provider == "gemini" and GEMINI_API_KEY:
-        return "gemini", GEMINI_API_KEY
     if provider == "deepseek" and DEEPSEEK_API_KEY:
         return "deepseek", DEEPSEEK_API_KEY
+    if provider == "gemini" and GEMINI_API_KEY:
+        return "gemini", GEMINI_API_KEY
     if HF_API_KEY:
         return "hf", HF_API_KEY
     return None, None
