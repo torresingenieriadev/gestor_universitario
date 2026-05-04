@@ -19,10 +19,10 @@ except ImportError:
     pass
 
 HF_API_KEY = os.environ.get("HF_API_KEY", "").strip()
-HF_API_URL = "https://api-inference.huggingface.co/models/%s"
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 
 def hf_call(model, prompt, max_tokens=500, temperature=0.3):
-    url = HF_API_URL % model
+    url = f"https://router.huggingface.co/hf-inference/models/{model}"
     headers = {"Authorization": f"Bearer {HF_API_KEY}"}
     payload = {
         "inputs": prompt,
@@ -34,14 +34,27 @@ def hf_call(model, prompt, max_tokens=500, temperature=0.3):
         if isinstance(data, list) and len(data) > 0:
             return data[0].get("generated_text", "")
     elif resp.status_code == 503:
-        raise Exception("Modelo cargandose (HTTP 503). Espera unos segundos y reintenta.")
+        raise Exception("Modelo cargandose (HTTP 503). Espera y reintenta.")
     elif resp.status_code in (401, 403):
-        raise Exception(f"API key sin permisos (HTTP {resp.status_code}). Revisa tu token.")
+        raise Exception(f"API key sin permisos (HTTP {resp.status_code}).")
     elif resp.status_code == 404:
-        raise Exception(f"Modelo no encontrado (HTTP 404).")
+        raise Exception(f"Modelo no disponible en tier gratuito (HTTP 404).")
     else:
         raise Exception(f"HTTP {resp.status_code}: {resp.text[:200]}")
     return ""
+
+
+def gemini_call(prompt, max_tokens=500):
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.3},
+    }
+    resp = requests.post(url, json=payload, timeout=30)
+    if resp.status_code == 200:
+        data = resp.json()
+        return data["candidates"][0]["content"]["parts"][0]["text"]
+    raise Exception(f"Gemini HTTP {resp.status_code}: {resp.text[:200]}")
 
 
 class HTMLStripper(HTMLParser):
@@ -220,6 +233,8 @@ def analyze_transcript():
 
     if HF_API_KEY:
         return _hf_analyze(transcript, analysis_type)
+    if GEMINI_API_KEY:
+        return _gemini_analyze(transcript, analysis_type)
     return jsonify({
         "result": _local_result(transcript, analysis_type)
         + "\n\n---\nModo offline. No se detecto HF_API_KEY.\n"
@@ -229,75 +244,93 @@ def analyze_transcript():
 
 @app.route("/api/status", methods=["GET"])
 def api_status():
-    if not HF_API_KEY:
-        return jsonify({"hf_configured": False, "msg": "HF_API_KEY no configurada."})
+    info = {}
 
-    models = [
-        "google/flan-t5-base",
-        "google/flan-t5-small",
-        "gpt2",
-        "distilgpt2",
-    ]
-    results = []
+    if HF_API_KEY:
+        models = ["google/flan-t5-base", "google/flan-t5-small", "gpt2"]
+        for model in models:
+            try:
+                result = hf_call(model, "Hola", max_tokens=5)
+                if result:
+                    info["hf"] = {"status": "ok", "model": model}
+                    break
+            except Exception as e:
+                info.setdefault("hf_errors", []).append(f"{model}: {str(e)[:100]}")
+        if "hf" not in info:
+            info["hf"] = {"status": "error", "errors": info.get("hf_errors", [])}
 
-    for model in models:
+    if GEMINI_API_KEY:
         try:
-            result = hf_call(model, "Hola", max_tokens=5)
-            if result:
-                return jsonify({"hf_configured": True, "status": "ok", "model": model, "msg": "Conectado"})
-            results.append(f"{model}: respuesta vacia")
+            result = gemini_call("Hola", max_tokens=5)
+            info["gemini"] = {"status": "ok", "model": "gemini-2.0-flash"}
         except Exception as e:
-            results.append(f"{model}: {str(e)[:200]}")
-            continue
+            info["gemini"] = {"status": "error", "msg": str(e)[:150]}
 
-    return jsonify({
-        "hf_configured": True,
-        "status": "error",
-        "msg": "Ningun modelo respondio.",
-        "errors": results,
-    })
+    if not info:
+        return jsonify({"msg": "No hay API keys configuradas. Agrega HF_API_KEY o GEMINI_API_KEY al .env"})
+
+    return jsonify(info)
 
 
 def _hf_analyze(transcript, analysis_type):
     prompts = {
-        "summary": (
-            "Eres un asistente academico. Genera un resumen ejecutivo en espanol del siguiente texto de clase universitaria. "
-            "Incluye: 1) Idea principal, 2) Puntos clave (en vinetas), 3) Conclusion breve.\n\nTEXTO:\n{text}\n\nRESUMEN:"
-        ),
-        "keywords": (
-            "Extrae los 10 conceptos o terminos clave mas importantes del siguiente texto academico en espanol. "
-            "Para cada concepto escribe una breve definicion basada en el contexto.\n\nTEXTO:\n{text}\n\nCONCEPTOS:"
-        ),
-        "questions": (
-            "Genera 5 preguntas de estudio en espanol basadas en este texto de clase. Incluye respuesta.\n\nTEXTO:\n{text}\n\nPREGUNTAS:"
-        ),
-        "flashcards": (
-            "Crea 5 tarjetas de estudio en espanol. Formato: FRENTE: concepto | REVERSO: definicion.\n\nTEXTO:\n{text}\n\nTARJETAS:"
-        ),
+        "summary": "Resume este texto de clase universitaria en espanol. Incluye idea principal, puntos clave en vinetas y conclusion breve.\n\nTEXTO:\n{text}\n\nRESUMEN:",
+        "keywords": "Extrae 10 conceptos clave de este texto academico en espanol con breve definicion.\n\nTEXTO:\n{text}\n\nCONCEPTOS:",
+        "questions": "Genera 5 preguntas de estudio en espanol con respuestas basadas en este texto.\n\nTEXTO:\n{text}\n\nPREGUNTAS:",
+        "flashcards": "Crea 5 flashcards en espanol. Formato: FRENTE: concepto | REVERSO: definicion.\n\nTEXTO:\n{text}\n\nTARJETAS:",
     }
 
     prompt_template = prompts.get(analysis_type, prompts["summary"])
-    max_chars = 3500
+    max_chars = 8000
     truncated = transcript[:max_chars]
-
     full_prompt = prompt_template.format(text=truncated)
-    models = ["google/flan-t5-large", "google/flan-t5-base", "google/flan-t5-small"]
-    last_error = ""
 
+    # Intenta Hugging Face primero
+    models = ["google/flan-t5-large", "google/flan-t5-base", "google/flan-t5-small"]
     for model in models:
         try:
             result = hf_call(model, full_prompt, max_tokens=500, temperature=0.3)
             if result and len(result.strip()) > 10:
                 return jsonify({"result": result.strip()})
-            last_error = f"{model}: respuesta vacia"
-        except Exception as e:
-            last_error = f"{model}: {str(e)[:150]}"
+        except Exception:
             continue
+
+    # Fallback a Gemini si HF falla
+    if GEMINI_API_KEY:
+        try:
+            result = gemini_call(full_prompt, max_tokens=500)
+            if result:
+                return jsonify({"result": result.strip()})
+        except Exception:
+            pass
 
     return jsonify({
         "result": _local_result(transcript, analysis_type)
-        + f"\n\n[IA no disponible: {last_error}]"
+        + "\n\n[IA no disponible. Configura GEMINI_API_KEY en .env para analisis real gratuito.]"
     })
+
+
+def _gemini_analyze(transcript, analysis_type):
+    prompts = {
+        "summary": "Resume este texto de clase universitaria en espanol. Incluye idea principal, puntos clave en vinetas y conclusion breve.\n\nTEXTO:\n{text}\n\nRESUMEN:",
+        "keywords": "Extrae 10 conceptos clave de este texto academico en espanol con breve definicion.\n\nTEXTO:\n{text}\n\nCONCEPTOS:",
+        "questions": "Genera 5 preguntas de estudio en espanol con respuestas basadas en este texto.\n\nTEXTO:\n{text}\n\nPREGUNTAS:",
+        "flashcards": "Crea 5 flashcards en espanol. Formato: FRENTE: concepto | REVERSO: definicion.\n\nTEXTO:\n{text}\n\nTARJETAS:",
+    }
+
+    prompt_template = prompts.get(analysis_type, prompts["summary"])
+    max_chars = 20000
+    truncated = transcript[:max_chars]
+    full_prompt = prompt_template.format(text=truncated)
+
+    try:
+        result = gemini_call(full_prompt, max_tokens=800)
+        return jsonify({"result": result.strip()})
+    except Exception as e:
+        return jsonify({
+            "result": _local_result(transcript, analysis_type)
+            + f"\n\n[Error Gemini: {str(e)[:150]}]"
+        })
 
 
 def _local_result(transcript, analysis_type):
