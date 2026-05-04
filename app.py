@@ -15,8 +15,8 @@ except ImportError:
     pass
 
 HF_API_KEY = os.environ.get("HF_API_KEY", "").strip()
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
-DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "sk-f73b1581c76c4301a1a3620d622bd8c8").strip()
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyAYcRG1RNxtjzOUJKgLwGG-inSEIwQ4sDY").strip()
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "").strip()
 
 AI_SETTINGS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ai_settings.json")
 
@@ -26,7 +26,7 @@ def load_ai_settings():
         with open(AI_SETTINGS_PATH, "r") as f:
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
-        return {"provider": "deepseek", "api_key": ""}
+        return {"provider": "gemini", "api_key": ""}
 
 
 def save_ai_settings(settings):
@@ -36,14 +36,14 @@ def save_ai_settings(settings):
 
 def get_active_api_key():
     settings = load_ai_settings()
-    provider = settings.get("provider", "deepseek")
+    provider = settings.get("provider", "gemini")
     key = settings.get("api_key", "").strip()
     if key:
         return provider, key
-    if provider == "deepseek" and DEEPSEEK_API_KEY:
-        return "deepseek", DEEPSEEK_API_KEY
     if provider == "gemini" and GEMINI_API_KEY:
         return "gemini", GEMINI_API_KEY
+    if provider == "deepseek" and DEEPSEEK_API_KEY:
+        return "deepseek", DEEPSEEK_API_KEY
     if HF_API_KEY:
         return "hf", HF_API_KEY
     return None, None

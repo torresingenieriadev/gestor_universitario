@@ -1039,7 +1039,7 @@ async function showAiSettingsModal() {
         var res = await fetch("/api/ai-settings");
         var data = await res.json();
         var sel = document.getElementById("ai-provider-select");
-        if (sel) sel.value = data.provider || "deepseek";
+        if (sel) sel.value = data.provider || "gemini";
     } catch { /* ignore */ }
 }
 
