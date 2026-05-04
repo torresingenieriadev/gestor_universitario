@@ -21,6 +21,9 @@ except ImportError:
 HF_API_KEY = os.environ.get("HF_API_KEY", "").strip()
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 
+print(f"[DEBUG] HF_API_KEY: {'SI' if HF_API_KEY else 'NO'} ({HF_API_KEY[:8]}...)")
+print(f"[DEBUG] GEMINI_API_KEY: {'SI' if GEMINI_API_KEY else 'NO'} ({GEMINI_API_KEY[:8]}...)")
+
 def hf_call(model, prompt, max_tokens=500, temperature=0.3):
     url = f"https://router.huggingface.co/hf-inference/models/{model}"
     headers = {"Authorization": f"Bearer {HF_API_KEY}"}
@@ -231,10 +234,10 @@ def analyze_transcript():
     if not transcript:
         return jsonify({"error": "No hay transcripción para analizar"}), 400
 
-    if HF_API_KEY:
-        return _hf_analyze(transcript, analysis_type)
     if GEMINI_API_KEY:
         return _gemini_analyze(transcript, analysis_type)
+    if HF_API_KEY:
+        return _hf_analyze(transcript, analysis_type)
     return jsonify({
         "result": _local_result(transcript, analysis_type)
         + "\n\n---\nModo offline. No se detecto HF_API_KEY.\n"
@@ -306,7 +309,7 @@ def _hf_analyze(transcript, analysis_type):
 
     return jsonify({
         "result": _local_result(transcript, analysis_type)
-        + "\n\n[IA no disponible. Configura GEMINI_API_KEY en .env para analisis real gratuito.]"
+        + f"\n\n[IA no disponible. HF y Gemini fallaron. Ultimo error: {last_error}]"
     })
 
 
