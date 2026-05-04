@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestor Universitario</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="app" id="app">
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-logo">
+                <span class="logo-icon">&#128218;</span>
+                <span class="logo-text">Gestor<span class="logo-accent">Universitario</span></span>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="sidebar-section-header">
+                    <span>Materias</span>
+                    <button class="btn-add" onclick="showSubjectModal()" title="Nueva materia">+</button>
+                </div>
+                <ul id="subject-list" class="subject-list"></ul>
+            </div>
+
+            <div class="sidebar-footer">
+                <button class="btn-export-all" onclick="showExportModal()">
+                    <span>&#128190;</span> Exportar Datos
+                </button>
+            </div>
+        </aside>
+
+        <main class="main-content" id="main-content">
+            <div class="welcome-state" id="welcome-state">
+                <div class="welcome-icon">&#128218;</div>
+                <h2>Bienvenido a tu Gestor Universitario</h2>
+                <p>Selecciona una materia del panel izquierdo o crea una nueva para comenzar a organizar tus notas y transcripciones.</p>
+                <button class="btn btn-primary btn-lg" onclick="showSubjectModal()">
+                    <span>+</span> Crear primera materia
+                </button>
+            </div>
+
+            <div class="subject-view hidden" id="subject-view">
+                <div class="subject-view-header" id="subject-view-header"></div>
+
+                <div class="tabs" id="tabs">
+                    <button class="tab active" data-tab="sessions" onclick="switchTab('sessions')">
+                        <span class="tab-icon">&#128214;</span> Encuentros
+                    </button>
+                    <button class="tab" data-tab="tasks" onclick="switchTab('tasks')">
+                        <span class="tab-icon">&#9744;</span> Tareas
+                        <span class="tab-badge hidden" id="tasks-badge">0</span>
+                    </button>
+                    <button class="tab" data-tab="ai" onclick="switchTab('ai')">
+                        <span class="tab-icon">&#129302;</span> Análisis IA
+                    </button>
+                    <button class="tab" data-tab="export" onclick="switchTab('export')">
+                        <span class="tab-icon">&#128190;</span> Exportar
+                    </button>
+                </div>
+
+                <div class="tab-content" id="tab-content"></div>
+            </div>
+        </main>
+    </div>
+
+    <div id="modal-overlay" class="modal-overlay hidden">
+        <div class="modal" id="modal-box"></div>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>
