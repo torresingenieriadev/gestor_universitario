@@ -9,6 +9,7 @@
 </head>
 <body>
     <div class="app" id="app">
+        <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
         <aside class="sidebar" id="sidebar">
             <div class="sidebar-logo" onclick="location.reload()">
                 <div class="logo-icon">🎓</div>
@@ -26,6 +27,10 @@
             </div>
 
             <div class="sidebar-footer">
+                <button class="sidebar-btn" onclick="showCloudSyncModal()">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 10h-4V6a2 2 0 0 0-4 0v4H6a2 2 0 0 0 0 4h4v4a2 2 0 0 0 4 0v-4h4a2 2 0 0 0 0-4z"/></svg>
+                    Nube
+                </button>
                 <button class="sidebar-btn" onclick="showExportModal()">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
                     Exportar
@@ -38,6 +43,12 @@
         </aside>
 
         <main class="main-content" id="main-content">
+            <div class="mobile-header" id="mobile-header">
+                <button class="mobile-menu-btn" onclick="toggleSidebar()">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+                </button>
+                <span class="mobile-title" id="mobile-title">Gestor Universitario</span>
+            </div>
             <div class="welcome-state" id="welcome-state">
                 <div class="welcome-illustration">
                     <div class="welcome-icon-wrap">

@@ -88,6 +88,8 @@ function selectSubject(id) {
     state.activeTab = "sessions";
     renderSubjects();
     renderSubjectView();
+    updateMobileTitle();
+    if (window.innerWidth <= 768) toggleSidebar();
 }
 
 function backToSubject() {
@@ -697,4 +699,91 @@ function switchImportTab(tab, btn) {
     importedFile = null;
 }
 
+function toggleSidebar() {
+    document.getElementById("sidebar").classList.toggle("open");
+    document.getElementById("sidebar-overlay").classList.toggle("active");
+}
+
+function updateMobileTitle() {
+    var title = document.getElementById("mobile-title");
+    if (title) {
+        title.textContent = state.selectedSubject ? state.selectedSubject.name : "Gestor Universitario";
+    }
+}
+
+var CLOUD_BIN_ID = localStorage.getItem("gestor_cloud_bin") || "";
+var CLOUD_API_KEY = "29d69a6148594daeb37151";
+
+async function cloudSave() {
+    if (!CLOUD_API_KEY) { showToast("Configura tu API key de JSONBin.io"); return; }
+    var url = CLOUD_BIN_ID
+        ? "https://api.jsonbin.io/v3/b/" + CLOUD_BIN_ID
+        : "https://api.jsonbin.io/v3/b";
+    var method = CLOUD_BIN_ID ? "PUT" : "POST";
+    try {
+        var res = await fetch(url, {
+            method: method,
+            headers: {
+                "Content-Type": "application/json",
+                "X-Master-Key": "$2a$10$" + CLOUD_API_KEY,
+                "X-Bin-Name": "gestor-universitario",
+                "X-Bin-Private": "false",
+            },
+            body: JSON.stringify({ subjects: state.subjects }),
+        });
+        var data = await res.json();
+        if (!CLOUD_BIN_ID && data.metadata && data.metadata.id) {
+            CLOUD_BIN_ID = data.metadata.id;
+            localStorage.setItem("gestor_cloud_bin", CLOUD_BIN_ID);
+        }
+        showToast("Datos sincronizados a la nube");
+    } catch (e) {
+        showToast("Error al sincronizar: " + e.message);
+    }
+}
+
+async function cloudLoad() {
+    if (!CLOUD_BIN_ID || !CLOUD_API_KEY) return false;
+    try {
+        var res = await fetch("https://api.jsonbin.io/v3/b/" + CLOUD_BIN_ID, {
+            headers: { "X-Master-Key": "$2a$10$" + CLOUD_API_KEY },
+        });
+        var data = await res.json();
+        if (data.record && data.record.subjects) {
+            state.subjects = data.record.subjects;
+            saveData();
+            renderSubjects();
+            if (state.subjects.length > 0) selectSubject(state.subjects[0].id);
+            showToast("Datos cargados desde la nube");
+            return true;
+        }
+    } catch (e) { /* ignore */ }
+    return false;
+}
+
+function showCloudSyncModal() {
+    openModal(
+        '<h3>Sincronización en la Nube</h3>' +
+        '<p style="font-size:0.85rem; color:var(--text-tertiary); margin-bottom:16px">Guarda tus datos en la nube con JSONBin.io (gratis).</p>' +
+        '<div class="form-group"><label>Tu API Key (X-Master-Key)</label>' +
+        '<input id="cloud-api-key" placeholder="Pega tu API key de JSONBin.io" value="' + (CLOUD_API_KEY ? "****" : "") + '"></div>' +
+        '<div class="form-group"><label>ID del Bin (opcional)</label>' +
+        '<input id="cloud-bin-id" placeholder="Se genera automáticamente" value="' + (CLOUD_BIN_ID || "") + '"></div>' +
+        '<div style="display:flex; gap:8px; margin-top:16px">' +
+        '<button class="btn btn-secondary" onclick="cloudSave()" style="flex:1">Guardar en Nube</button>' +
+        '<button class="btn btn-primary" onclick="cloudLoadFromModal()" style="flex:1">Cargar desde Nube</button></div>' +
+        '<p style="font-size:0.72rem; color:var(--text-muted); margin-top:12px; text-align:center">Crea tu API key gratis en <a href="https://jsonbin.io" target="_blank" style="color:var(--accent)">jsonbin.io</a></p>'
+    );
+}
+
+async function cloudLoadFromModal() {
+    var key = document.getElementById("cloud-api-key").value.trim();
+    var binId = document.getElementById("cloud-bin-id").value.trim();
+    if (key && key !== "****") { CLOUD_API_KEY = key; localStorage.setItem("gestor_cloud_api_key", key); }
+    if (binId) { CLOUD_BIN_ID = binId; localStorage.setItem("gestor_cloud_bin", binId); }
+    closeModal();
+    await cloudLoad();
+}
+
 loadData();
+cloudLoad();
