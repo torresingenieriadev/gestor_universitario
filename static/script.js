@@ -637,11 +637,28 @@ function deleteSession(id) {
 function showSessionImportModal() {
     if (!state.selectedSession) return;
     var sessionTitle = escapeHtml(state.selectedSubject.name + " / " + state.selectedSession.title);
+    var meetScript = [
+        '(function() {',
+        '    var segments = document.querySelectorAll(\'.JnEIr, [jsname="Eqn5fb"]\');',
+        '    if (segments.length === 0) { console.error(\'No se encontraron segmentos. Asegurate de que la transcripcion este visible.\'); return; }',
+        '    var lines = [];',
+        '    segments.forEach(function(seg) {',
+        '        var textEl = seg.querySelector(\'.wyBDIb\');',
+        '        if (textEl) { var t = textEl.textContent.trim(); if (t) lines.push(t); }',
+        '    });',
+        '    if (lines.length === 0) { console.error(\'Sin texto. Haz scroll en la transcripcion para cargar mas.\'); return; }',
+        '    var result = lines.join(\'\\n\');',
+        '    navigator.clipboard.writeText(result).then(function() {',
+        '        console.log(\'✅ Transcripcion extraida: \' + lines.length + \' segmentos, \' + result.length + \' caracteres.\');',
+        '    }).catch(function() { console.log(\'⚠️ Copia manual:\'); console.log(result); });',
+        '})();'
+    ].join('\n');
     openModal(
         '<h3>Importar Transcripcion</h3>' +
         '<p style="font-size:0.85rem; color:var(--text-light); margin-bottom:12px">Destino: <strong>' + sessionTitle + '</strong></p>' +
         '<div class="import-tabs"><button class="import-tab active" onclick="switchImportTab(\'file\', this)">Archivo</button>' +
-        '<button class="import-tab" onclick="switchImportTab(\'paste\', this)">Pegar Texto</button></div>' +
+        '<button class="import-tab" onclick="switchImportTab(\'paste\', this)">Pegar Texto</button>' +
+        '<button class="import-tab" onclick="switchImportTab(\'script\', this)">Script Consola</button></div>' +
         '<div id="import-file-tab"><label class="file-drop-area" id="file-drop-area">' +
         '<input type="file" id="import-file-input" accept=".txt,.html" style="display:none" onchange="handleFileSelect(event)">' +
         '<p>Arrastra un archivo .txt o .html aqui<br>o haz clic para seleccionar</p></label>' +
@@ -652,6 +669,10 @@ function showSessionImportModal() {
         '<textarea id="import-paste-text" placeholder="Pega aqui el texto o HTML..." style="min-height:200px"></textarea>' +
         '<div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>' +
         '<button class="btn btn-primary" onclick="importPasted()">Limpiar y Previsualizar</button></div></div>' +
+        '<div id="import-script-tab" class="hidden">' +
+        '<p style="font-size:0.82rem; color:var(--text-light); margin-bottom:10px">Abre la consola del navegador (F12 → Console) en la pagina de la transcripcion, pega este codigo y presiona Enter:</p>' +
+        '<textarea id="import-script-text" readonly style="min-height:160px; width:100%; border:1px solid var(--border); border-radius:8px; padding:12px; font-family:monospace; font-size:0.78rem; resize:vertical; background:var(--bg-surface); color:var(--text-primary)">' + escapeHtml(meetScript) + '</textarea>' +
+        '<div class="modal-actions"><button class="btn btn-ghost" onclick="copyScriptCode()">&#128203; Copiar Script</button></div></div>' +
         '<div id="import-result" class="hidden" style="margin-top:16px">' +
         '<div class="section-label">Vista previa del texto limpio</div>' +
         '<textarea id="import-result-text" style="min-height:200px; width:100%; border:1px solid var(--border); border-radius:8px; padding:12px; font-family:inherit; font-size:0.85rem; resize:vertical" readonly></textarea>' +
@@ -727,9 +748,18 @@ function switchImportTab(tab, btn) {
     btn.classList.add("active");
     document.getElementById("import-file-tab").classList.toggle("hidden", tab !== "file");
     document.getElementById("import-paste-tab").classList.toggle("hidden", tab !== "paste");
+    document.getElementById("import-script-tab").classList.toggle("hidden", tab !== "script");
     document.getElementById("import-result").classList.add("hidden");
     document.querySelector(".import-tabs").classList.remove("hidden");
     importedFile = null;
+}
+
+function copyScriptCode() {
+    var ta = document.getElementById("import-script-text");
+    if (!ta) return;
+    ta.select();
+    document.execCommand("copy");
+    showToast("Script copiado. Pegalo en la consola del navegador (F12).");
 }
 
 function toggleSidebar() {
