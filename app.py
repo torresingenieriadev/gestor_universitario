@@ -231,6 +231,33 @@ def save_full_data():
     return jsonify({"error": "Datos inválidos"}), 400
 
 
+@app.route("/api/backup", methods=["POST"])
+def restore_backup():
+    file = request.files.get("file")
+    if not file:
+        data = request.json
+        if not data or "subjects" not in data:
+            return jsonify({"error": "JSON inválido"}), 400
+    else:
+        content = file.read().decode("utf-8", errors="ignore")
+        try:
+            data = json.loads(content)
+        except json.JSONDecodeError:
+            return jsonify({"error": "El archivo no es un JSON válido"}), 400
+
+    if "subjects" not in data:
+        return jsonify({"error": "El JSON no tiene la estructura esperada"}), 400
+
+    for subject in data["subjects"]:
+        subject.setdefault("tasks", [])
+        for session in subject.get("sessions", []):
+            session.setdefault("notes", "")
+            session.setdefault("transcript", "")
+
+    save_data(data)
+    return jsonify({"ok": True, "subjects": len(data["subjects"])})
+
+
 @app.route("/api/analyze", methods=["POST"])
 def analyze_transcript():
     transcript = request.json.get("transcript", "")
@@ -435,4 +462,5 @@ def _local_result(transcript, analysis_type):
 
 
 if __name__ == "__main__":
-    app.run(debug=True, host="127.0.0.1", port=5000)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(debug=True, host="0.0.0.0", port=port)

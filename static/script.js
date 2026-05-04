@@ -855,7 +855,77 @@ function switchImportTab(tab, btn) {
     document.getElementById("import-paste-tab").classList.toggle("hidden", tab !== "paste");
     document.getElementById("import-result").classList.add("hidden");
     document.querySelector(".import-tabs").classList.remove("hidden");
-    importedFile = null;
+importedFile = null;
+}
+
+function showBackupRestoreModal() {
+    openModal(
+        '<h3>Restaurar Backup</h3>' +
+        '<p style="font-size:0.85rem; color:var(--text-light); margin-bottom:16px">' +
+        'Selecciona un archivo JSON exportado previamente para restaurar tus datos. ' +
+        'Esto reemplazara todos los datos actuales.</p>' +
+        '<label class="file-drop-area" style="cursor:pointer">' +
+        '<input type="file" id="backup-file-input" accept=".json" style="display:none" onchange="handleBackupFile(event)">' +
+        '<p>&#128194; Arrastra o selecciona un archivo .json de backup</p>' +
+        '</label>' +
+        '<div id="backup-preview" class="hidden" style="margin-top:12px;padding:12px;background:#f8f9fb;border-radius:8px;font-size:0.85rem"></div>' +
+        '<div class="modal-actions" style="margin-top:16px">' +
+        '<button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>' +
+        '<button class="btn btn-primary" id="restore-btn" onclick="restoreBackup()" disabled>Restaurar</button>' +
+        '</div>'
+    );
+}
+
+var backupData = null;
+
+function handleBackupFile(e) {
+    var file = e.target.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function(ev) {
+        try {
+            var data = JSON.parse(ev.target.result);
+            if (!data.subjects) {
+                document.getElementById("backup-preview").innerHTML = '<span style="color:var(--danger)">Archivo invalido: no contiene materias.</span>';
+                return;
+            }
+            backupData = data;
+            var sessionCount = data.subjects.reduce(function(sum, s) { return sum + (s.sessions ? s.sessions.length : 0); }, 0);
+            document.getElementById("backup-preview").innerHTML =
+                '<strong>' + data.subjects.length + ' materias</strong> y <strong>' + sessionCount + ' encuentros</strong> encontrados.' +
+                '<br><span style="color:var(--text-light)">Archivo: ' + file.name + '</span>';
+            document.getElementById("backup-preview").classList.remove("hidden");
+            document.getElementById("restore-btn").disabled = false;
+        } catch (err) {
+            document.getElementById("backup-preview").innerHTML = '<span style="color:var(--danger)">Error: el archivo no es un JSON valido.</span>';
+            document.getElementById("backup-preview").classList.remove("hidden");
+        }
+    };
+    reader.readAsText(file);
+}
+
+async function restoreBackup() {
+    if (!backupData) return;
+    try {
+        var formData = new FormData();
+        var blob = new Blob([JSON.stringify(backupData)], {type: "application/json"});
+        formData.append("file", blob, "backup.json");
+        var res = await fetch("/api/backup", {method: "POST", body: formData});
+        var result = await res.json();
+        if (result.ok) {
+            state.subjects = backupData.subjects;
+            state.selectedSubject = null;
+            state.selectedSession = null;
+            renderSubjects();
+            renderSubjectView();
+            closeModal();
+            showToast("Backup restaurado: " + result.subjects + " materias");
+        } else {
+            showToast("Error: " + (result.error || "No se pudo restaurar"));
+        }
+    } catch (err) {
+        showToast("Error al restaurar backup");
+    }
 }
 
 loadData();
