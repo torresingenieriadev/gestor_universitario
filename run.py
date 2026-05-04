@@ -7,7 +7,6 @@ def main():
 
     try:
         import flask
-        import requests
         import dotenv
     except ImportError:
         print("Instalando dependencias...")
@@ -23,8 +22,8 @@ def main():
 
     from app import app
 
-    hf_key = os.environ.get("HF_API_KEY", "")
     gemini_key = os.environ.get("GEMINI_API_KEY", "")
+    hf_key = os.environ.get("HF_API_KEY", "")
     print("\n" + "=" * 50)
     print("  Gestor Universitario")
     print("=" * 50)
