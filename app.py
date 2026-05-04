@@ -217,15 +217,29 @@ def api_status():
     if not HF_CLIENT:
         return jsonify({"hf_configured": False, "msg": "Libreria huggingface-hub no disponible. Ejecuta: pip install huggingface-hub"})
 
-    for model in ["google/flan-t5-base", "google/flan-t5-small"]:
+    models = [
+        "google/flan-t5-base",
+        "google/flan-t5-small",
+        "microsoft/DialoGPT-medium",
+        "distilgpt2",
+    ]
+    results = []
+
+    for model in models:
         try:
-            result = HF_CLIENT.text_generation("Hola", model=model, max_new_tokens=5)
+            result = HF_CLIENT.text_generation("Di hola", model=model, max_new_tokens=5)
             if result:
                 return jsonify({"hf_configured": True, "status": "ok", "model": model, "msg": "Hugging Face conectado"})
-        except Exception:
+        except Exception as e:
+            results.append(f"{model}: {str(e)[:150]}")
             continue
 
-    return jsonify({"hf_configured": True, "status": "error", "msg": "Ningun modelo respondio. Revisa tu API key."})
+    return jsonify({
+        "hf_configured": True,
+        "status": "error",
+        "msg": "Ningun modelo respondio.",
+        "errors": results,
+    })
 
 
 def _hf_analyze(transcript, analysis_type):
