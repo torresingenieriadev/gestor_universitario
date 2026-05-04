@@ -28,13 +28,28 @@ function loadData() {
         if (!fc.repetition) fc.repetition = 0;
     });
     renderSubjects();
+    updateWelcomeStats();
     if (state.subjects.length > 0 && !state.selectedSubject) {
         selectSubject(state.subjects[0].id);
     }
 }
 
+function updateWelcomeStats() {
+    var totalSessions = state.subjects.reduce(function (sum, s) { return sum + (s.sessions ? s.sessions.length : 0); }, 0);
+    var totalTasks = state.subjects.reduce(function (sum, s) { return sum + (s.tasks ? s.tasks.length : 0); }, 0);
+    var elSub = document.getElementById("stat-subjects");
+    var elSes = document.getElementById("stat-sessions");
+    var elFc  = document.getElementById("stat-flashcards");
+    var elTsk = document.getElementById("stat-tasks");
+    if (elSub) elSub.textContent = state.subjects.length;
+    if (elSes) elSes.textContent = totalSessions;
+    if (elFc)  elFc.textContent  = state.flashcards.length;
+    if (elTsk) elTsk.textContent = totalTasks;
+}
+
 function saveData() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ subjects: state.subjects, flashcards: state.flashcards }));
+    updateWelcomeStats();
 }
 
 function generateId() {
