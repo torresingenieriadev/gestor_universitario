@@ -53,6 +53,11 @@ def clean_html(raw_html):
     text = re.sub(r"Copiar enlace en esta transcripción\s*", "", text, flags=re.IGNORECASE)
     text = re.sub(r"Copy link to this transcript\s*", "", text, flags=re.IGNORECASE)
     text = re.sub(r"\d{1,2}:\d{2}\s*", "", text)
+    for word in ["eh", "Eh", "EH", "ay", "Ay", "AY", "mm", "mM", "Mm", "MM", "uy", "Uy", "UY", "ah", "Ah", "AH"]:
+        text = re.sub(r"\b" + re.escape(word) + r"\b", "", text)
+    text = re.sub(r" +", " ", text)
+    lines = [line.strip() for line in text.split("\n")]
+    text = "\n".join(line for line in lines if line)
     return text.strip()
 
 
@@ -123,11 +128,17 @@ def analyze_transcript():
 
 
 def _gemini_analyze(transcript, analysis_type):
+    base_instruction = (
+        "Eres un asistente academico experto. El texto es una TRANSCRIPCION AUTOMATICA de una clase en vivo. "
+        "Tiene muletillas (\"profe\", \"hola\", \"listo\", \"bueno\", \"eh\"), interrupciones, correcciones entre profesor y alumnos, "
+        "errores de voz a texto y frases conversacionales. IGNORA todo eso y EXTRAE SOLO el contenido academico. "
+        "No incluyas saludos, despedidas ni conversacion social.\n\n"
+    )
     prompts = {
-        "summary": "Resume este texto de clase universitaria en espanol. Incluye SIEMPRE: 1) Idea principal en una oracion, 2) Puntos clave en vinetas (al menos 5), 3) Conclusion breve. Responde COMPLETO.\n\nTEXTO:\n{text}\n\nRESUMEN:",
-        "keywords": "Extrae los 10 conceptos clave de este texto academico en espanol. Para CADA concepto: nombre + definicion breve. Formato numerado 1 al 10. Responde COMPLETO.\n\nTEXTO:\n{text}\n\nCONCEPTOS:",
-        "questions": "Genera 5 preguntas de estudio en espanol basadas en este texto. Incluye respuesta. Responde COMPLETO.\n\nTEXTO:\n{text}\n\nPREGUNTAS:",
-        "flashcards": "Crea 5 tarjetas de estudio en espanol. FRENTE: concepto | REVERSO: definicion. Responde COMPLETO.\n\nTEXTO:\n{text}\n\nTARJETAS:",
+        "summary": base_instruction + "Crea un RESUMEN ACADEMICO en espanol. Incluye SIEMPRE: 1) TEMA PRINCIPAL en una oracion, 2) PUNTOS CLAVE con viñetas (mín 5), 3) CONCLUSION breve. Responde COMPLETO.\n\nTRANSCRIPCION:\n{text}\n\nRESUMEN ACADEMICO:",
+        "keywords": base_instruction + "Extrae los 10 CONCEPTOS CLAVE academicos de este texto. Para CADA concepto: nombre + definicion breve. Formato numerado 1 al 10. Responde COMPLETO.\n\nTRANSCRIPCION:\n{text}\n\nCONCEPTOS CLAVE:",
+        "questions": base_instruction + "Genera 5 PREGUNTAS DE ESTUDIO en espanol basadas en el contenido academico. Cada pregunta con su respuesta. Responde COMPLETO.\n\nTRANSCRIPCION:\n{text}\n\nPREGUNTAS DE ESTUDIO:",
+        "flashcards": base_instruction + "Crea 5 TARJETAS DE ESTUDIO en espanol del contenido academico. Formato: FRENTE: concepto/pregunta | REVERSO: definicion/respuesta. Responde COMPLETO.\n\nTRANSCRIPCION:\n{text}\n\nTARJETAS DE ESTUDIO:",
     }
     prompt = prompts.get(analysis_type, prompts["summary"])
     full_prompt = prompt.format(text=transcript[:20000])

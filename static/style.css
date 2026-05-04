@@ -797,6 +797,16 @@ body::before {
     overflow-y: auto;
 }
 
+#ai-transcript-preview:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+#ai-transcript-preview-container + .form-group {
+    margin-top: 14px;
+}
+
 /* ===== SESSION DETAIL ===== */
 .session-detail-view { padding: 20px 24px; max-width: 800px; margin: 0 auto; }
 .session-detail-header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; }

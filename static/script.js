@@ -343,17 +343,22 @@ function renderAiTab(container) {
     var sessionsWithTranscript = (subject.sessions || []).filter(function (s) { return s.transcript; });
     var html = '<div class="section-header"><h3>Analisis con Inteligencia Artificial</h3></div>' +
         '<div class="card"><div class="card-body">' +
-        '<p style="font-size:0.85rem; color:var(--text-light); margin-bottom:16px">Selecciona una transcripcion y tipo de analisis.</p>';
+        '<p style="font-size:0.85rem; color:var(--text-light); margin-bottom:16px">Selecciona una transcripcion y tipo de analisis. Puedes editar el texto antes de analizar.</p>';
     if (sessionsWithTranscript.length === 0) {
         html += '<div class="empty-state"><p>No hay transcripciones. Importa una en Encuentros.</p></div>';
     } else {
-        html += '<div class="form-group"><label>Transcripcion</label><select id="ai-session-select">';
+        html += '<div class="form-group"><label>Transcripcion</label><select id="ai-session-select" onchange="updateAiPreview()">';
         sessionsWithTranscript.forEach(function (s) {
             html += '<option value="' + s.id + '">' + escapeHtml(s.title) + '</option>';
         });
         html += '</select></div>' +
+            '<div id="ai-transcript-preview-container" style="margin-bottom:16px">' +
+            '<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px">' +
+            '<span style="font-size:0.8rem; font-weight:600; color:var(--text-light)">Vista previa de la transcripcion</span>' +
+            '<button class="btn btn-ghost btn-sm" id="ai-edit-toggle" onclick="toggleAiEdit()">&#9998; Editar</button></div>' +
+            '<textarea id="ai-transcript-preview" readonly style="width:100%; min-height:120px; max-height:200px; border:1px solid var(--border); border-radius:8px; padding:12px; font-family:inherit; font-size:0.82rem; resize:vertical; background:var(--bg-secondary); color:var(--text-primary)"></textarea></div>' +
             '<div class="form-group"><label>Tipo de analisis</label><select id="ai-analysis-type">' +
-            '<option value="summary">Resumen ejecutivo</option>' +
+            '<option value="summary">Resumen academico</option>' +
             '<option value="keywords">Conceptos clave</option>' +
             '<option value="questions">Preguntas de estudio</option>' +
             '<option value="flashcards">Tarjetas de estudio</option>' +
@@ -363,16 +368,44 @@ function renderAiTab(container) {
     }
     html += '</div></div>';
     container.innerHTML = html;
+    updateAiPreview();
+}
+
+function updateAiPreview() {
+    var select = document.getElementById("ai-session-select");
+    var preview = document.getElementById("ai-transcript-preview");
+    if (!select || !preview) return;
+    var sessionId = select.value;
+    var sess = state.selectedSubject.sessions.find(function (s) { return s.id === sessionId; });
+    if (sess) preview.value = sess.transcript || "";
+}
+
+var aiEditMode = false;
+
+function toggleAiEdit() {
+    aiEditMode = !aiEditMode;
+    var preview = document.getElementById("ai-transcript-preview");
+    var btn = document.getElementById("ai-edit-toggle");
+    if (preview) preview.readOnly = !aiEditMode;
+    if (btn) {
+        btn.innerHTML = aiEditMode ? "&#128190; Bloquear" : "&#9998; Editar";
+        btn.style.color = aiEditMode ? "var(--accent)" : "";
+    }
+    if (preview) preview.style.background = aiEditMode ? "var(--bg-primary)" : "var(--bg-secondary)";
 }
 
 async function runAiAnalysis() {
     var select = document.getElementById("ai-session-select");
     var type = document.getElementById("ai-analysis-type");
+    var preview = document.getElementById("ai-transcript-preview");
     if (!select || !type) return;
     var sessionId = select.value;
     var analysisType = type.value;
-    var sess = state.selectedSubject.sessions.find(function (s) { return s.id === sessionId; });
-    if (!sess) return;
+    var sessionTranscript = preview ? preview.value.trim() : "";
+    if (!sessionTranscript) {
+        showToast("Sin transcripcion para analizar");
+        return;
+    }
     var resultContainer = document.getElementById("ai-result-container");
     resultContainer.innerHTML = '<div style="margin-top:16px; text-align:center; padding:20px">' +
         '<div class="loading-dots"><span></span><span></span><span></span></div>' +
@@ -381,7 +414,7 @@ async function runAiAnalysis() {
         var res = await fetch("/api/analyze", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ transcript: sess.transcript, type: analysisType })
+            body: JSON.stringify({ transcript: sessionTranscript, type: analysisType })
         });
         var data = await res.json();
         resultContainer.innerHTML = '<div class="ai-result">' + escapeHtml(data.result) + '</div>';
