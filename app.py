@@ -47,16 +47,21 @@ def hf_call(model, prompt, max_tokens=500, temperature=0.3):
     return ""
 
 
-def gemini_call(prompt, max_tokens=500):
+def gemini_call(prompt, max_tokens=4000):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.3},
     }
-    resp = requests.post(url, json=payload, timeout=30)
+    resp = requests.post(url, json=payload, timeout=60)
     if resp.status_code == 200:
         data = resp.json()
-        return data["candidates"][0]["content"]["parts"][0]["text"]
+        candidate = data["candidates"][0]
+        text = candidate["content"]["parts"][0]["text"]
+        finish = candidate.get("finishReason", "")
+        if finish == "MAX_TOKENS":
+            text += "\n\n[Respuesta cortada por longitud. Intenta con un analisis mas especifico.]"
+        return text
     raise Exception(f"Gemini HTTP {resp.status_code}: {resp.text[:200]}")
 
 
@@ -315,10 +320,26 @@ def _hf_analyze(transcript, analysis_type):
 
 def _gemini_analyze(transcript, analysis_type):
     prompts = {
-        "summary": "Resume este texto de clase universitaria en espanol. Incluye idea principal, puntos clave en vinetas y conclusion breve.\n\nTEXTO:\n{text}\n\nRESUMEN:",
-        "keywords": "Extrae 10 conceptos clave de este texto academico en espanol con breve definicion.\n\nTEXTO:\n{text}\n\nCONCEPTOS:",
-        "questions": "Genera 5 preguntas de estudio en espanol con respuestas basadas en este texto.\n\nTEXTO:\n{text}\n\nPREGUNTAS:",
-        "flashcards": "Crea 5 flashcards en espanol. Formato: FRENTE: concepto | REVERSO: definicion.\n\nTEXTO:\n{text}\n\nTARJETAS:",
+        "summary": (
+            "Resume este texto de clase universitaria en espanol. "
+            "Incluye SIEMPRE: 1) Idea principal en una oracion, 2) Puntos clave en vinetas (al menos 5), 3) Conclusion breve. "
+            "Responde COMPLETO, no cortes la respuesta.\n\nTEXTO:\n{text}\n\nRESUMEN:"
+        ),
+        "keywords": (
+            "Extrae los 10 conceptos clave de este texto academico en espanol. "
+            "Para CADA concepto escribe: nombre del concepto + definicion breve de 1-2 oraciones basada en el texto. "
+            "Formato numerado 1 al 10. Responde COMPLETO todos los 10.\n\nTEXTO:\n{text}\n\nCONCEPTOS:"
+        ),
+        "questions": (
+            "Genera 5 preguntas de estudio en espanol basadas en este texto. "
+            "Para CADA pregunta incluye la respuesta correcta. "
+            "Formato: 1. Pregunta? Respuesta: ... Responde COMPLETO las 5.\n\nTEXTO:\n{text}\n\nPREGUNTAS:"
+        ),
+        "flashcards": (
+            "Crea 5 tarjetas de estudio en espanol a partir de este texto. "
+            "Para CADA tarjeta: FRENTE: concepto o pregunta | REVERSO: definicion o respuesta. "
+            "Responde COMPLETO las 5 tarjetas.\n\nTEXTO:\n{text}\n\nTARJETAS:"
+        ),
     }
 
     prompt_template = prompts.get(analysis_type, prompts["summary"])
@@ -327,7 +348,7 @@ def _gemini_analyze(transcript, analysis_type):
     full_prompt = prompt_template.format(text=truncated)
 
     try:
-        result = gemini_call(full_prompt, max_tokens=800)
+        result = gemini_call(full_prompt, max_tokens=4000)
         return jsonify({"result": result.strip()})
     except Exception as e:
         return jsonify({
