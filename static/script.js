@@ -5,6 +5,9 @@ const state = {
     selectedSubject: null,
     selectedSession: null,
     activeTab: "sessions",
+    flashcards: [],
+    reviewIndex: 0,
+    reviewFlipped: false,
 };
 
 function loadData() {
@@ -13,10 +16,17 @@ function loadData() {
         try {
             const data = JSON.parse(stored);
             state.subjects = data.subjects || [];
+            state.flashcards = data.flashcards || [];
         } catch {
             state.subjects = [];
+            state.flashcards = [];
         }
     }
+    state.flashcards.forEach(function (fc) {
+        if (!fc.ef) fc.ef = 2.5;
+        if (!fc.interval) fc.interval = 0;
+        if (!fc.repetition) fc.repetition = 0;
+    });
     renderSubjects();
     if (state.subjects.length > 0 && !state.selectedSubject) {
         selectSubject(state.subjects[0].id);
@@ -24,7 +34,7 @@ function loadData() {
 }
 
 function saveData() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ subjects: state.subjects }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ subjects: state.subjects, flashcards: state.flashcards }));
 }
 
 function generateId() {
@@ -156,6 +166,7 @@ function renderActiveTab() {
     switch (state.activeTab) {
         case "sessions": renderSessionsTab(container); break;
         case "tasks": renderTasksTab(container); break;
+        case "flashcards": renderFlashcardsTab(container); break;
         case "ai": renderAiTab(container); break;
         case "export": renderExportTab(container); break;
     }
@@ -338,10 +349,220 @@ function deleteTask(id) {
     showToast("Tarea eliminada");
 }
 
+function getDueFlashcards() {
+    var today = new Date().toISOString().split("T")[0];
+    return state.flashcards.filter(function (fc) { return !fc.dueDate || fc.dueDate <= today; });
+}
+
+function sm2Update(card, quality) {
+    if (quality < 3) {
+        card.repetition = 0;
+        card.interval = 1;
+    } else {
+        if (card.repetition === 0) card.interval = 1;
+        else if (card.repetition === 1) card.interval = 6;
+        else card.interval = Math.round(card.interval * card.ef);
+        card.repetition += 1;
+    }
+    card.ef = card.ef + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
+    if (card.ef < 1.3) card.ef = 1.3;
+    var next = new Date();
+    next.setDate(next.getDate() + card.interval);
+    card.dueDate = next.toISOString().split("T")[0];
+    card.lastReview = new Date().toISOString();
+}
+
+function renderFlashcardsTab(container) {
+    var subject = state.selectedSubject;
+    var subjectCards = state.flashcards.filter(function (fc) { return fc.subjectId === subject.id; });
+    var dueCards = getDueFlashcards().filter(function (fc) { return fc.subjectId === subject.id; });
+    var totalReviews = subjectCards.reduce(function (sum, fc) { return sum + (fc.repetition || 0); }, 0);
+
+    var html = '<div class="section-header"><h3>Flashcards - Repeticion Espaciada</h3>' +
+        '<button class="btn btn-primary btn-sm" onclick="showAddFlashcardModal()">&#10010; Nueva Tarjeta</button></div>' +
+        '<div style="display:flex; gap:12px; margin-bottom:16px">' +
+        '<div class="card" style="flex:1; text-align:center; padding:12px">' +
+        '<div style="font-size:1.5rem; font-weight:700; color:var(--accent)">' + dueCards.length + '</div>' +
+        '<div style="font-size:0.75rem; color:var(--text-tertiary)">Pendientes hoy</div></div>' +
+        '<div class="card" style="flex:1; text-align:center; padding:12px">' +
+        '<div style="font-size:1.5rem; font-weight:700; color:var(--success)">' + subjectCards.length + '</div>' +
+        '<div style="font-size:0.75rem; color:var(--text-tertiary)">Total tarjetas</div></div>' +
+        '<div class="card" style="flex:1; text-align:center; padding:12px">' +
+        '<div style="font-size:1.5rem; font-weight:700; color:var(--text-primary)">' + totalReviews + '</div>' +
+        '<div style="font-size:0.75rem; color:var(--text-tertiary)">Repasos</div></div></div>';
+
+    if (subjectCards.length === 0) {
+        html += '<div class="empty-state"><div class="empty-state-icon">&#128196;</div>' +
+            '<p>No hay flashcards. Crea una o genera desde IA en el tab Analisis.</p></div>';
+    } else if (dueCards.length > 0) {
+        html += '<div style="text-align:center; margin-bottom:16px">' +
+            '<button class="btn btn-primary" onclick="startReviewSession()">&#127919; Iniciar Sesion de Repaso (' + dueCards.length + ' tarjetas)</button></div>';
+    }
+
+    html += '<div class="section-header" style="margin-top:20px"><h3>Todas las Tarjetas</h3></div><div id="flashcard-list">';
+    subjectCards.forEach(function (fc) {
+        var isDue = !fc.dueDate || fc.dueDate <= new Date().toISOString().split("T")[0];
+        var dueLabel = isDue ? '<span style="color:var(--accent); font-size:0.75rem">&#9889; Pendiente</span>' :
+            '<span style="color:var(--text-tertiary); font-size:0.75rem">' + fc.dueDate + '</span>';
+        html += '<div class="card" style="margin-bottom:8px; padding:12px">' +
+            '<div style="display:flex; justify-content:space-between; align-items:flex-start">' +
+            '<div style="flex:1"><strong style="font-size:0.85rem">' + escapeHtml(fc.front) + '</strong>' +
+            '<div style="font-size:0.78rem; color:var(--text-tertiary); margin-top:4px">' + escapeHtml(fc.back.substring(0, 80)) + (fc.back.length > 80 ? '...' : '') + '</div></div>' +
+            '<div style="display:flex; gap:4px; align-items:center">' + dueLabel +
+            '<button class="btn btn-ghost btn-sm" onclick="showEditFlashcardModal(\'' + fc.id + '\')" title="Editar">&#9998;</button>' +
+            '<button class="btn btn-danger btn-sm" onclick="deleteFlashcard(\'' + fc.id + '\')" title="Eliminar">&times;</button></div></div></div>';
+    });
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+function startReviewSession() {
+    var dueCards = getDueFlashcards().filter(function (fc) { return fc.subjectId === state.selectedSubject.id; });
+    if (dueCards.length === 0) { showToast("No hay tarjetas pendientes"); return; }
+    state.reviewCards = dueCards;
+    state.reviewIndex = 0;
+    state.reviewFlipped = false;
+    renderReviewCard();
+}
+
+function renderReviewCard() {
+    var container = document.getElementById("tab-content");
+    if (!state.reviewCards || state.reviewIndex >= state.reviewCards.length) {
+        container.innerHTML = '<div class="section-header"><h3>Flashcards</h3></div>' +
+            '<div class="empty-state"><div class="empty-state-icon">&#127881;</div>' +
+            '<p style="font-size:1.1rem; font-weight:600; color:var(--success)">Sesion completada!</p>' +
+            '<p style="color:var(--text-tertiary)">Vuelve manana para repasar las tarjetas programadas.</p>' +
+            '<button class="btn btn-primary" style="margin-top:16px" onclick="renderActiveTab()">&#8592; Volver</button></div>';
+        return;
+    }
+    var card = state.reviewCards[state.reviewIndex];
+    var progress = ((state.reviewIndex + 1) / state.reviewCards.length * 100).toFixed(0);
+    var html = '<div class="section-header"><h3>Repaso - Tarjeta ' + (state.reviewIndex + 1) + ' de ' + state.reviewCards.length + '</h3></div>' +
+        '<div style="background:var(--bg-surface); border-radius:8px; height:4px; margin-bottom:20px; overflow:hidden">' +
+        '<div style="background:var(--accent); height:100%; width:' + progress + '%; transition:width 0.3s"></div></div>' +
+        '<div class="flashcard-container" onclick="flipReviewCard()">' +
+        '<div class="flashcard-inner' + (state.reviewFlipped ? ' flipped' : '') + '">' +
+        '<div class="flashcard-front"><div class="flashcard-label">FRENTE</div>' +
+        '<div class="flashcard-text">' + escapeHtml(card.front) + '</div>' +
+        '<div class="flashcard-hint">Clic para ver respuesta</div></div>' +
+        '<div class="flashcard-back"><div class="flashcard-label">REVERSO</div>' +
+        '<div class="flashcard-text">' + escapeHtml(card.back) + '</div></div></div></div>';
+    if (state.reviewFlipped) {
+        html += '<div style="display:flex; gap:8px; margin-top:20px; justify-content:center">' +
+            '<button class="btn btn-danger" style="flex:1" onclick="rateCard(0)">&#128260; Otra vez</button>' +
+            '<button class="btn" style="flex:1; background:#f59e0b; color:#000" onclick="rateCard(3)">&#128531; Difícil</button>' +
+            '<button class="btn" style="flex:1; background:var(--success); color:#000" onclick="rateCard(4)">&#128522; Bien</button>' +
+            '<button class="btn" style="flex:1; background:var(--accent); color:#000" onclick="rateCard(5)">&#129297; Fácil</button></div>';
+    }
+    container.innerHTML = html;
+}
+
+function flipReviewCard() {
+    state.reviewFlipped = !state.reviewFlipped;
+    renderReviewCard();
+}
+
+function rateCard(quality) {
+    var card = state.reviewCards[state.reviewIndex];
+    var fc = state.flashcards.find(function (f) { return f.id === card.id; });
+    if (fc) sm2Update(fc, quality);
+    saveData();
+    state.reviewIndex++;
+    state.reviewFlipped = false;
+    renderReviewCard();
+}
+
+function showAddFlashcardModal() {
+    openModal(
+        '<h3>Nueva Flashcard</h3>' +
+        '<div class="form-group"><label>Frente (pregunta/concepto)</label>' +
+        '<textarea id="fc-front" placeholder="Ej: ¿Qué es un límite?"></textarea></div>' +
+        '<div class="form-group"><label>Reverso (respuesta/definicion)</label>' +
+        '<textarea id="fc-back" placeholder="Ej: Valor al que se acerca una función..."></textarea></div>' +
+        '<div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>' +
+        '<button class="btn btn-primary" onclick="saveFlashcard()">Crear</button></div>'
+    );
+}
+
+function showEditFlashcardModal(id) {
+    var fc = state.flashcards.find(function (f) { return f.id === id; });
+    if (!fc) return;
+    openModal(
+        '<h3>Editar Flashcard</h3>' +
+        '<div class="form-group"><label>Frente</label>' +
+        '<textarea id="fc-front">' + escapeHtml(fc.front) + '</textarea></div>' +
+        '<div class="form-group"><label>Reverso</label>' +
+        '<textarea id="fc-back">' + escapeHtml(fc.back) + '</textarea></div>' +
+        '<div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>' +
+        '<button class="btn btn-primary" onclick="saveFlashcard(\'' + id + '\')">Guardar</button></div>'
+    );
+}
+
+function saveFlashcard(id) {
+    var front = document.getElementById("fc-front").value.trim();
+    var back = document.getElementById("fc-back").value.trim();
+    if (!front || !back) return;
+    if (id) {
+        var fc = state.flashcards.find(function (f) { return f.id === id; });
+        if (fc) { fc.front = front; fc.back = back; }
+    } else {
+        state.flashcards.push({
+            id: generateId(),
+            subjectId: state.selectedSubject.id,
+            front: front,
+            back: back,
+            interval: 0,
+            repetition: 0,
+            ef: 2.5,
+            dueDate: new Date().toISOString().split("T")[0],
+            createdAt: new Date().toISOString(),
+        });
+    }
+    saveData();
+    closeModal();
+    renderActiveTab();
+    showToast(id ? "Tarjeta actualizada" : "Tarjeta creada");
+}
+
+function deleteFlashcard(id) {
+    if (!confirm("Eliminar esta flashcard?")) return;
+    state.flashcards = state.flashcards.filter(function (f) { return f.id !== id; });
+    saveData();
+    renderActiveTab();
+    showToast("Tarjeta eliminada");
+}
+
+function importFlashcardsFromAi(result) {
+    var lines = result.split("\n").filter(function (l) { return l.trim(); });
+    var count = 0;
+    lines.forEach(function (line) {
+        var match = line.match(/FRENTE:\s*(.+?)\s*\|\s*REVERSO:\s*(.+)/i);
+        if (match) {
+            state.flashcards.push({
+                id: generateId(),
+                subjectId: state.selectedSubject.id,
+                front: match[1].trim(),
+                back: match[2].trim(),
+                interval: 0, repetition: 0, ef: 2.5,
+                dueDate: new Date().toISOString().split("T")[0],
+                createdAt: new Date().toISOString(),
+            });
+            count++;
+        }
+    });
+    if (count > 0) {
+        saveData();
+        showToast(count + " flashcards importadas");
+    } else {
+        showToast("No se encontraron tarjetas en el formato FRENTE: ... | REVERSO: ...");
+    }
+}
+
 function renderAiTab(container) {
     var subject = state.selectedSubject;
     var sessionsWithTranscript = (subject.sessions || []).filter(function (s) { return s.transcript; });
-    var html = '<div class="section-header"><h3>Analisis con Inteligencia Artificial</h3></div>' +
+    var html = '<div class="section-header"><h3>Analisis con Inteligencia Artificial</h3>' +
+        '<button class="btn btn-ghost btn-sm" onclick="showAiSettingsModal()">&#9881; Ajustes IA</button></div>' +
         '<div class="card"><div class="card-body">' +
         '<p style="font-size:0.85rem; color:var(--text-light); margin-bottom:16px">Selecciona una transcripcion y tipo de analisis. Puedes editar el texto antes de analizar.</p>';
     if (sessionsWithTranscript.length === 0) {
@@ -361,7 +582,8 @@ function renderAiTab(container) {
             '<option value="summary">Resumen academico</option>' +
             '<option value="keywords">Conceptos clave</option>' +
             '<option value="questions">Preguntas de estudio</option>' +
-            '<option value="flashcards">Tarjetas de estudio</option>' +
+            '<option value="flashcards">Flashcards (tarjetas)</option>' +
+            '<option value="study_plan">Plan de estudio (3 días)</option>' +
             '</select></div>' +
             '<button class="btn btn-primary" onclick="runAiAnalysis()">&#129302; Analizar</button>' +
             '<div id="ai-result-container"></div>';
@@ -417,7 +639,9 @@ async function runAiAnalysis() {
             body: JSON.stringify({ transcript: sessionTranscript, type: analysisType })
         });
         var data = await res.json();
-        resultContainer.innerHTML = '<div class="ai-result">' + escapeHtml(data.result) + '</div>';
+        var importBtn = analysisType === "flashcards" ?
+            '<button class="btn btn-primary btn-sm" style="margin-top:12px" onclick="importFlashcardsFromAi(\'' + escapeHtml(data.result).replace(/'/g, "\\'") + '\')">&#128190; Importar como Flashcards</button>' : '';
+        resultContainer.innerHTML = '<div class="ai-result">' + escapeHtml(data.result) + '</div>' + importBtn;
     } catch {
         resultContainer.innerHTML = '<div style="margin-top:16px; padding:20px; background:#fff8f5; border:1px solid #ffd4cc; border-radius:8px; text-align:center">' +
             '<p style="color:var(--danger); margin-bottom:8px">Error de conexion con el servidor.</p></div>';
@@ -779,6 +1003,81 @@ function updateMobileTitle() {
     var title = document.getElementById("mobile-title");
     if (title) {
         title.textContent = state.selectedSubject ? state.selectedSubject.name : "Gestor Universitario";
+    }
+}
+
+async function showAiSettingsModal() {
+    var providers = [];
+    try {
+        var res = await fetch("/api/ai-settings");
+        var data = await res.json();
+        providers = data.providers || [];
+    } catch { /* ignore */ }
+
+    var providerOptions = providers.map(function (p) {
+        return '<option value="' + p.id + '">' + p.name + (p.free ? ' (Gratis)' : '') + '</option>';
+    }).join("");
+
+    openModal(
+        '<h3>&#9881; Configuracion de IA</h3>' +
+        '<div class="form-group"><label>Proveedor</label><select id="ai-provider-select">' + providerOptions + '</select></div>' +
+        '<div class="form-group"><label>API Key</label>' +
+        '<input id="ai-api-key" type="password" placeholder="Pega tu API key aqui"></div>' +
+        '<div id="ai-settings-status" style="font-size:0.8rem; margin-bottom:12px"></div>' +
+        '<div style="display:flex; gap:8px; margin-bottom:16px">' +
+        '<button class="btn btn-ghost" onclick="testAiConnection()" style="flex:1">&#128269; Probar Conexion</button>' +
+        '<button class="btn btn-primary" onclick="saveAiSettings()" style="flex:1">&#128190; Guardar</button></div>' +
+        '<div style="font-size:0.75rem; color:var(--text-tertiary); line-height:1.6">' +
+        '<strong>Proveedores gratuitos:</strong><br>' +
+        providers.map(function (p) {
+            return '&#8226; <a href="' + p.url + '" target="_blank" style="color:var(--accent)">' + p.name + '</a>' + (p.free ? ' - Gratis' : '');
+        }).join('<br>') +
+        '</div>'
+    );
+
+    try {
+        var res = await fetch("/api/ai-settings");
+        var data = await res.json();
+        var sel = document.getElementById("ai-provider-select");
+        if (sel) sel.value = data.provider || "gemini";
+    } catch { /* ignore */ }
+}
+
+async function testAiConnection() {
+    var provider = document.getElementById("ai-provider-select").value;
+    var apiKey = document.getElementById("ai-api-key").value.trim();
+    var status = document.getElementById("ai-settings-status");
+    status.innerHTML = '<span style="color:var(--text-tertiary)">Probando conexion...</span>';
+    try {
+        var res = await fetch("/api/ai-test", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ provider: provider, api_key: apiKey })
+        });
+        var data = await res.json();
+        if (data.ok) {
+            status.innerHTML = '<span style="color:var(--success)">&#9989; Conexion exitosa!</span>';
+        } else {
+            status.innerHTML = '<span style="color:var(--danger)">&#10060; Error: ' + escapeHtml(data.error || "Desconocido") + '</span>';
+        }
+    } catch {
+        status.innerHTML = '<span style="color:var(--danger)">&#10060; Error de conexion al servidor</span>';
+    }
+}
+
+async function saveAiSettings() {
+    var provider = document.getElementById("ai-provider-select").value;
+    var apiKey = document.getElementById("ai-api-key").value.trim();
+    try {
+        await fetch("/api/ai-settings", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ provider: provider, api_key: apiKey })
+        });
+        closeModal();
+        showToast("Configuracion de IA guardada");
+    } catch {
+        showToast("Error al guardar configuracion");
     }
 }
 

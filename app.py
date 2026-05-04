@@ -1,5 +1,6 @@
 import os
 import re
+import json
 import requests as requests_lib
 from flask import Flask, render_template, request, jsonify, send_from_directory
 from html.parser import HTMLParser
@@ -15,6 +16,37 @@ except ImportError:
 
 HF_API_KEY = os.environ.get("HF_API_KEY", "").strip()
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+
+AI_SETTINGS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ai_settings.json")
+
+
+def load_ai_settings():
+    try:
+        with open(AI_SETTINGS_PATH, "r") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {"provider": "gemini", "api_key": ""}
+
+
+def save_ai_settings(settings):
+    with open(AI_SETTINGS_PATH, "w") as f:
+        json.dump(settings, f)
+
+
+def get_active_api_key():
+    settings = load_ai_settings()
+    provider = settings.get("provider", "gemini")
+    key = settings.get("api_key", "").strip()
+    if key:
+        return provider, key
+    if provider == "gemini" and GEMINI_API_KEY:
+        return "gemini", GEMINI_API_KEY
+    if provider == "deepseek" and DEEPSEEK_API_KEY:
+        return "deepseek", DEEPSEEK_API_KEY
+    if HF_API_KEY:
+        return "hf", HF_API_KEY
+    return None, None
 
 
 class HTMLStripper(HTMLParser):
@@ -61,8 +93,8 @@ def clean_html(raw_html):
     return text.strip()
 
 
-def gemini_call(prompt, max_tokens=4000):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+def gemini_call(prompt, api_key, max_tokens=4000):
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.3},
@@ -79,9 +111,28 @@ def gemini_call(prompt, max_tokens=4000):
     raise Exception(f"Gemini HTTP {resp.status_code}: {resp.text[:200]}")
 
 
-def hf_call(model, prompt, max_tokens=500, temperature=0.3):
+def deepseek_call(prompt, api_key, max_tokens=4000):
+    url = "https://api.deepseek.com/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": "deepseek-chat",
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": 0.3,
+    }
+    resp = requests_lib.post(url, headers=headers, json=payload, timeout=60)
+    if resp.status_code == 200:
+        data = resp.json()
+        return data["choices"][0]["message"]["content"]
+    raise Exception(f"DeepSeek HTTP {resp.status_code}: {resp.text[:200]}")
+
+
+def hf_call(model, prompt, api_key, max_tokens=500, temperature=0.3):
     url = f"https://api-inference.huggingface.co/models/{model}"
-    headers = {"Authorization": f"Bearer {HF_API_KEY}"}
+    headers = {"Authorization": f"Bearer {api_key}"}
     payload = {"inputs": prompt, "parameters": {"max_new_tokens": max_tokens, "temperature": temperature, "return_full_text": False}}
     resp = requests_lib.post(url, headers=headers, json=payload, timeout=60)
     if resp.status_code == 200:
@@ -120,14 +171,18 @@ def analyze_transcript():
     if not transcript:
         return jsonify({"error": "No hay transcripcion"}), 400
 
-    if GEMINI_API_KEY:
-        return _gemini_analyze(transcript, analysis_type)
-    if HF_API_KEY:
-        return _hf_analyze(transcript, analysis_type)
-    return jsonify({"result": _local_result(transcript, analysis_type) + "\n\n---\nModo offline. Configura GEMINI_API_KEY en .env para IA real."})
+    provider, api_key = get_active_api_key()
+
+    if provider == "gemini":
+        return _gemini_analyze(transcript, analysis_type, api_key)
+    if provider == "deepseek":
+        return _deepseek_analyze(transcript, analysis_type, api_key)
+    if provider == "hf":
+        return _hf_analyze(transcript, analysis_type, api_key)
+    return jsonify({"result": _local_result(transcript, analysis_type) + "\n\n---\nModo offline. Configura una API key en Ajustes > IA."})
 
 
-def _gemini_analyze(transcript, analysis_type):
+def _gemini_analyze(transcript, analysis_type, api_key):
     base_instruction = (
         "Eres un asistente academico experto. El texto es una TRANSCRIPCION AUTOMATICA de una clase en vivo. "
         "Tiene muletillas (\"profe\", \"hola\", \"listo\", \"bueno\", \"eh\"), interrupciones, correcciones entre profesor y alumnos, "
@@ -139,17 +194,40 @@ def _gemini_analyze(transcript, analysis_type):
         "keywords": base_instruction + "Extrae los 10 CONCEPTOS CLAVE academicos de este texto. Para CADA concepto: nombre + definicion breve. Formato numerado 1 al 10. Responde COMPLETO.\n\nTRANSCRIPCION:\n{text}\n\nCONCEPTOS CLAVE:",
         "questions": base_instruction + "Genera 5 PREGUNTAS DE ESTUDIO en espanol basadas en el contenido academico. Cada pregunta con su respuesta. Responde COMPLETO.\n\nTRANSCRIPCION:\n{text}\n\nPREGUNTAS DE ESTUDIO:",
         "flashcards": base_instruction + "Crea 5 TARJETAS DE ESTUDIO en espanol del contenido academico. Formato: FRENTE: concepto/pregunta | REVERSO: definicion/respuesta. Responde COMPLETO.\n\nTRANSCRIPCION:\n{text}\n\nTARJETAS DE ESTUDIO:",
+        "study_plan": base_instruction + "Crea un PLAN DE ESTUDIO de 3 dias en espanol basado en este contenido. Para cada dia: tema a estudiar, actividades concretas, tiempo estimado. Formato claro y practico.\n\nTRANSCRIPCION:\n{text}\n\nPLAN DE ESTUDIO:",
     }
     prompt = prompts.get(analysis_type, prompts["summary"])
     full_prompt = prompt.format(text=transcript[:20000])
     try:
-        result = gemini_call(full_prompt, max_tokens=4000)
+        result = gemini_call(full_prompt, api_key, max_tokens=4000)
         return jsonify({"result": result.strip()})
     except Exception as e:
         return jsonify({"result": _local_result(transcript, analysis_type) + f"\n\n[Error Gemini: {str(e)[:150]}]"})
 
 
-def _hf_analyze(transcript, analysis_type):
+def _deepseek_analyze(transcript, analysis_type, api_key):
+    base_instruction = (
+        "Eres un asistente academico experto. El texto es una TRANSCRIPCION AUTOMATICA de una clase en vivo. "
+        "Tiene muletillas, interrupciones, errores de voz a texto y frases conversacionales. "
+        "IGNORA todo eso y EXTRAE SOLO el contenido academico.\n\n"
+    )
+    prompts = {
+        "summary": base_instruction + "Crea un RESUMEN ACADEMICO en espanol. Incluye: 1) TEMA PRINCIPAL, 2) PUNTOS CLAVE (min 5), 3) CONCLUSION.\n\nTRANSCRIPCION:\n{text}\n\nRESUMEN:",
+        "keywords": base_instruction + "Extrae 10 CONCEPTOS CLAVE con definicion breve. Formato numerado.\n\nTRANSCRIPCION:\n{text}\n\nCONCEPTOS:",
+        "questions": base_instruction + "Genera 5 PREGUNTAS DE ESTUDIO con respuesta.\n\nTRANSCRIPCION:\n{text}\n\nPREGUNTAS:",
+        "flashcards": base_instruction + "Crea 5 TARJETAS. Formato: FRENTE: concepto | REVERSO: definicion.\n\nTRANSCRIPCION:\n{text}\n\nTARJETAS:",
+        "study_plan": base_instruction + "Crea un PLAN DE ESTUDIO de 3 dias basado en este contenido.\n\nTRANSCRIPCION:\n{text}\n\nPLAN:",
+    }
+    prompt = prompts.get(analysis_type, prompts["summary"])
+    full_prompt = prompt.format(text=transcript[:20000])
+    try:
+        result = deepseek_call(full_prompt, api_key, max_tokens=4000)
+        return jsonify({"result": result.strip()})
+    except Exception as e:
+        return jsonify({"result": _local_result(transcript, analysis_type) + f"\n\n[Error DeepSeek: {str(e)[:150]}]"})
+
+
+def _hf_analyze(transcript, analysis_type, api_key):
     prompts = {
         "summary": "Resume este texto en espanol. Idea principal, puntos clave, conclusion.\n\nTEXTO:\n{text}\n\nRESUMEN:",
         "keywords": "Extrae 10 conceptos clave con definicion breve.\n\nTEXTO:\n{text}\n\nCONCEPTOS:",
@@ -160,7 +238,7 @@ def _hf_analyze(transcript, analysis_type):
     full_prompt = prompt.format(text=transcript[:3500])
     for model in ["google/flan-t5-large", "google/flan-t5-base", "google/flan-t5-small"]:
         try:
-            result = hf_call(model, full_prompt)
+            result = hf_call(model, full_prompt, api_key)
             if result and len(result.strip()) > 10:
                 return jsonify({"result": result.strip()})
         except Exception:
@@ -192,19 +270,68 @@ def _local_result(transcript, analysis_type):
     return "Analisis local completado."
 
 
+@app.route("/api/ai-settings", methods=["GET"])
+def get_ai_settings():
+    settings = load_ai_settings()
+    provider, _ = get_active_api_key()
+    return jsonify({
+        "provider": settings.get("provider", "gemini"),
+        "configured": provider is not None,
+        "providers": [
+            {"id": "gemini", "name": "Google Gemini", "free": True, "url": "https://aistudio.google.com/apikey"},
+            {"id": "deepseek", "name": "DeepSeek (China)", "free": True, "url": "https://platform.deepseek.com/api_keys"},
+            {"id": "hf", "name": "Hugging Face", "free": True, "url": "https://huggingface.co/settings/tokens"},
+        ],
+    })
+
+
+@app.route("/api/ai-settings", methods=["POST"])
+def save_ai_settings_endpoint():
+    data = request.json
+    provider = data.get("provider", "gemini")
+    api_key = data.get("api_key", "").strip()
+    settings = {"provider": provider, "api_key": api_key}
+    save_ai_settings(settings)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/ai-test", methods=["POST"])
+def test_ai_connection():
+    data = request.json
+    provider = data.get("provider", "gemini")
+    api_key = data.get("api_key", "").strip()
+    try:
+        if provider == "gemini":
+            gemini_call("Responde solo OK", api_key, max_tokens=5)
+        elif provider == "deepseek":
+            deepseek_call("Responde solo OK", api_key, max_tokens=5)
+        elif provider == "hf":
+            hf_call("google/flan-t5-small", "Responde solo OK", api_key, max_tokens=10)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)[:200]}), 400
+
+
 @app.route("/api/status", methods=["GET"])
 def api_status():
-    info = {}
-    if GEMINI_API_KEY:
+    provider, api_key = get_active_api_key()
+    info = {"active_provider": provider}
+    if provider == "gemini" and api_key:
         try:
-            gemini_call("Hola", max_tokens=5)
+            gemini_call("Hola", api_key, max_tokens=5)
             info["gemini"] = {"status": "ok", "model": "gemini-2.5-flash"}
         except Exception as e:
             info["gemini"] = {"status": "error", "msg": str(e)[:150]}
-    if HF_API_KEY:
-        info["hf"] = {"status": "configured", "key": HF_API_KEY[:8] + "..."}
-    if not info:
-        info["msg"] = "Sin API keys. Solo analisis local disponible."
+    if provider == "deepseek" and api_key:
+        try:
+            deepseek_call("Hola", api_key, max_tokens=5)
+            info["deepseek"] = {"status": "ok", "model": "deepseek-chat"}
+        except Exception as e:
+            info["deepseek"] = {"status": "error", "msg": str(e)[:150]}
+    if provider == "hf" and api_key:
+        info["hf"] = {"status": "configured", "key": api_key[:8] + "..."}
+    if not provider:
+        info["msg"] = "Sin API keys. Configura una en Ajustes > IA."
     return jsonify(info)
 
 
