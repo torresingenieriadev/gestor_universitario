@@ -48,7 +48,7 @@ def hf_call(model, prompt, max_tokens=500, temperature=0.3):
 
 
 def gemini_call(prompt, max_tokens=500):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.3},
@@ -265,7 +265,7 @@ def api_status():
     if GEMINI_API_KEY:
         try:
             result = gemini_call("Hola", max_tokens=5)
-            info["gemini"] = {"status": "ok", "model": "gemini-2.0-flash"}
+            info["gemini"] = {"status": "ok", "model": "gemini-2.5-flash"}
         except Exception as e:
             info["gemini"] = {"status": "error", "msg": str(e)[:150]}
 
