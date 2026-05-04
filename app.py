@@ -210,124 +210,111 @@ def api_status():
     if not HF_API_KEY:
         return jsonify({"hf_configured": False, "msg": "HF_API_KEY no configurada. Crea .env con tu token."})
 
-    try:
-        resp = requests.post(
-            HF_API_URL % "google/flan-t5-large",
-            headers={"Authorization": f"Bearer {HF_API_KEY}"},
-            json={"inputs": "test", "parameters": {"max_new_tokens": 5}},
-            timeout=10,
-        )
-        if resp.status_code == 200:
-            return jsonify({"hf_configured": True, "status": "ok", "msg": "Hugging Face conectado correctamente"})
-        elif resp.status_code == 503:
-            return jsonify({"hf_configured": True, "status": "loading", "msg": f"Modelo cargandose (HTTP {resp.status_code}). Puede tomar ~30s."})
-        else:
-            return jsonify({"hf_configured": True, "status": "error", "msg": f"HTTP {resp.status_code}: {resp.text[:100]}"})
-    except Exception as e:
-        return jsonify({"hf_configured": True, "status": "error", "msg": str(e)[:200]})
+    models = ["google/flan-t5-small", "google/flan-t5-base", "gpt2"]
+    for model in models:
+        url = f"https://api-inference.huggingface.co/models/{model}"
+        try:
+            resp = requests.post(
+                url,
+                headers={"Authorization": f"Bearer {HF_API_KEY}"},
+                json={"inputs": "test", "parameters": {"max_new_tokens": 5}},
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                return jsonify({"hf_configured": True, "status": "ok", "model": model, "msg": "Hugging Face conectado"})
+            elif resp.status_code == 503:
+                return jsonify({"hf_configured": True, "status": "loading", "model": model, "msg": "Modelo cargandose (~30s)"})
+        except Exception:
+            continue
+
+    return jsonify({"hf_configured": True, "status": "error", "msg": "Ningun modelo respondio. Verifica tu conexion o API key."})
 
 
 def _hf_analyze(transcript, analysis_type):
     prompts = {
         "summary": (
             "Eres un asistente academico. Genera un resumen ejecutivo en espanol del siguiente texto de clase universitaria. "
-            "Incluye: 1) Idea principal, 2) Puntos clave (vinetas), 3) Conclusion breve.\n\nTEXTO:\n%s\n\nRESUMEN:"
+            "Incluye: 1) Idea principal, 2) Puntos clave (vinetas), 3) Conclusion breve.\n\nTEXTO:\n{text}\n\nRESUMEN:"
         ),
         "keywords": (
             "Extrae los 10 conceptos o terminos clave mas importantes del siguiente texto academico en espanol. "
             "Para cada concepto, escribe una breve definicion basada en el contexto del texto. "
-            "Formato: 'Concepto: definicion breve'\n\nTEXTO:\n%s\n\nCONCEPTOS CLAVE:"
+            "Formato: 'Concepto: definicion breve'\n\nTEXTO:\n{text}\n\nCONCEPTOS CLAVE:"
         ),
         "questions": (
             "Genera 5 preguntas de estudio en espanol basadas en el siguiente texto de clase. "
             "Las preguntas deben evaluar comprension profunda, no solo memoria. "
-            "Incluye la respuesta correcta para cada pregunta.\n\nTEXTO:\n%s\n\nPREGUNTAS DE ESTUDIO:"
+            "Incluye la respuesta correcta para cada pregunta.\n\nTEXTO:\n{text}\n\nPREGUNTAS:"
         ),
         "flashcards": (
             "Crea 5 tarjetas de estudio (flashcards) en espanol a partir de este texto academico. "
             "Formato para cada tarjeta:\n"
             "FRENTE: [concepto o pregunta]\n"
             "REVERSO: [definicion o respuesta]\n\n"
-            "TEXTO:\n%s\n\nTARJETAS:"
+            "TEXTO:\n{text}\n\nTARJETAS:"
         ),
     }
 
-    prompt = prompts.get(analysis_type, prompts["summary"])
-    max_chars = 4000
+    prompt_template = prompts.get(analysis_type, prompts["summary"])
+    max_chars = 3500
     truncated = transcript[:max_chars]
     if len(transcript) > max_chars:
-        truncated += "\n\n[Texto truncado por longitud...]"
+        truncated += "\n\n[Texto truncado...]"
 
-    full_prompt = prompt % truncated
+    full_prompt = prompt_template.format(text=truncated)
     headers = {"Authorization": f"Bearer {HF_API_KEY}"}
 
-    model = "google/flan-t5-large"
+    # Modelos probados en tier gratuito, en orden de preferencia
+    models = ["google/flan-t5-small", "google/flan-t5-base", "gpt2"]
+    last_error = ""
 
     import time
-    for attempt in range(3):
-        try:
-            resp = requests.post(
-                HF_API_URL % model,
-                headers=headers,
-                json={"inputs": full_prompt, "parameters": {"max_new_tokens": 600, "temperature": 0.3}},
-                timeout=45,
-            )
+    for model in models:
+        url = f"https://api-inference.huggingface.co/models/{model}"
+        for attempt in range(2):
+            try:
+                resp = requests.post(
+                    url,
+                    headers=headers,
+                    json={"inputs": full_prompt, "parameters": {"max_new_tokens": 500, "temperature": 0.3}},
+                    timeout=45,
+                )
 
-            if resp.status_code == 200:
-                result = resp.json()
-                if isinstance(result, list) and len(result) > 0:
-                    text = result[0].get("generated_text", "")
-                    if full_prompt in text:
-                        text = text.replace(full_prompt, "").strip()
-                    if text:
-                        return jsonify({"result": text})
+                if resp.status_code == 200:
+                    result = resp.json()
+                    if isinstance(result, list) and len(result) > 0:
+                        text = result[0].get("generated_text", "")
+                        if full_prompt in text:
+                            text = text.replace(full_prompt, "").strip()
+                        if text and len(text) > 10:
+                            return jsonify({"result": text})
 
-            elif resp.status_code == 503:
-                if attempt < 2:
-                    time.sleep(3)
-                    continue
-                return jsonify({
-                    "result": _local_result(transcript, analysis_type)
-                    + "\n\n[Modelo cargandose en Hugging Face. Intenta de nuevo en 30 segundos.]"
-                })
+                elif resp.status_code == 503:
+                    if attempt == 0:
+                        time.sleep(4)
+                        continue
 
-            elif resp.status_code == 401 or resp.status_code == 403:
-                return jsonify({
-                    "result": _local_result(transcript, analysis_type)
-                    + "\n\n[Error: API key invalida. Verifica tu token en https://huggingface.co/settings/tokens]"
-                })
+                elif resp.status_code in (401, 403):
+                    return jsonify({
+                        "result": _local_result(transcript, analysis_type)
+                        + "\n\n[Error: API key invalida. Verifica tu token.]"
+                    })
 
-            else:
-                error_msg = resp.text[:200] if resp.text else f"HTTP {resp.status_code}"
-                return jsonify({
-                    "result": _local_result(transcript, analysis_type)
-                    + f"\n\n[Error de Hugging Face: {error_msg}]"
-                })
+                last_error = f"{model}: HTTP {resp.status_code}"
 
-        except requests.exceptions.SSLError:
-            return jsonify({
-                "result": _local_result(transcript, analysis_type)
-                + "\n\n[Error SSL: Problema con el certificado. Verifica tu conexion a internet.]"
-            })
-        except requests.exceptions.ConnectionError:
-            return jsonify({
-                "result": _local_result(transcript, analysis_type)
-                + "\n\n[Error de conexion: No se pudo conectar a Hugging Face. Verifica tu internet.]"
-            })
-        except requests.exceptions.Timeout:
-            if attempt < 2:
-                continue
-            return jsonify({
-                "result": _local_result(transcript, analysis_type)
-                + "\n\n[Timeout: La API tardo demasiado. Intenta de nuevo.]"
-            })
-        except Exception as e:
-            return jsonify({
-                "result": _local_result(transcript, analysis_type)
-                + f"\n\n[Error: {str(e)[:150]}]"
-            })
+            except requests.exceptions.ConnectionError:
+                last_error = f"{model}: Error de conexion a internet"
+            except requests.exceptions.Timeout:
+                last_error = f"{model}: Timeout"
+            except Exception as e:
+                last_error = f"{model}: {str(e)[:100]}"
 
-    return jsonify({"result": _local_result(transcript, analysis_type)})
+            break  # si no fue 200 ni 503 con retry, probar siguiente modelo
+
+    return jsonify({
+        "result": _local_result(transcript, analysis_type)
+        + f"\n\n[Todos los modelos fallaron. Ultimo error: {last_error}]"
+    })
 
 
 def _local_result(transcript, analysis_type):
